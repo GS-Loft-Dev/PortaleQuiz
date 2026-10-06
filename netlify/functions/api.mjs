@@ -2,6 +2,7 @@
 // Dati salvati in Netlify Blobs (store "quiz-gsloft"), sessione in cookie HttpOnly firmato.
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
+import nodemailer from "nodemailer";
 
 export const config = { path: "/api/*" };
 
@@ -98,6 +99,73 @@ function validateQuiz(q) {
   return null;
 }
 
+/* ---------------- email ---------------- */
+const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const mailConfigured = () => !!process.env.MAIL_FROM && !!(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
+const siteUrl = () => (process.env.SITE_URL || process.env.URL || "").replace(/\/$/, "");
+
+// Invia una lista di email {to, subject, html, text}. Usa Resend se c'è RESEND_API_KEY, altrimenti SMTP.
+async function sendMails(msgs) {
+  const from = process.env.MAIL_FROM;
+  let sent = 0;
+  const failed = [];
+  if (process.env.RESEND_API_KEY) {
+    for (let i = 0; i < msgs.length; i += 100) {
+      const chunk = msgs.slice(i, i + 100);
+      const r = await fetch("https://api.resend.com/emails/batch", {
+        method: "POST",
+        headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
+        body: JSON.stringify(chunk.map((m) => ({ from, to: [m.to], subject: m.subject, html: m.html, text: m.text }))),
+      });
+      if (r.ok) sent += chunk.length;
+      else { failed.push(...chunk.map((m) => m.to)); console.error("Resend:", r.status, await r.text()); }
+    }
+    return { sent, failed };
+  }
+  const port = Number(process.env.SMTP_PORT || 465);
+  const t = nodemailer.createTransport({
+    host: process.env.SMTP_HOST, port, secure: port === 465, pool: true, maxConnections: 3,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  const res = await Promise.allSettled(msgs.map((m) => t.sendMail({ from, to: m.to, subject: m.subject, html: m.html, text: m.text })));
+  t.close();
+  res.forEach((r, i) => { if (r.status === "fulfilled") sent++; else { failed.push(msgs[i].to); console.error("SMTP:", r.reason?.message); } });
+  return { sent, failed };
+}
+
+function quizMail(quiz, person) {
+  const link = siteUrl() || "(link del sito)";
+  const n = quiz.questions.length;
+  const nd = n === 1 ? "1 domanda" : `${n} domande`;
+  const subject = `Nuovo quiz disponibile: ${quiz.title}`;
+  const text = `Ciao,\n\nè disponibile un nuovo quiz: "${quiz.title}".\n${nd}, ${quiz.duration} minuti.\n\nAccedi da: ${link}\nEmail: ${person.email}\nCodice di accesso: ${person.code}\n\nLe domande compaiono una alla volta e non si può tornare indietro: mettiti in un momento tranquillo prima di iniziare.\n\nGS LOFT`;
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#111">
+  <div style="background:#111;color:#fff;padding:18px 24px;font-weight:700;letter-spacing:.04em;font-size:20px">GS·LOFT</div>
+  <div style="padding:24px;border:1px solid #e1e1de;border-top:0">
+    <p style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#0a7a6d;font-weight:700">Nuovo quiz</p>
+    <h1 style="margin:0 0 12px;font-size:22px">${escHtml(quiz.title)}</h1>
+    <p style="margin:0 0 18px;color:#5f5f5c">${nd} · ${quiz.duration} minuti</p>
+    ${quiz.desc ? `<p style="margin:0 0 18px">${escHtml(quiz.desc)}</p>` : ""}
+    <table style="border-collapse:collapse;margin:0 0 20px;font-size:15px"><tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Email</td><td><b>${escHtml(person.email)}</b></td></tr>
+    <tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Codice</td><td style="font-family:Menlo,monospace;font-size:17px;letter-spacing:.12em"><b>${escHtml(person.code)}</b></td></tr></table>
+    <a href="${escHtml(link)}" style="display:inline-block;background:#2ec4b0;color:#0b0b0b;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:6px">Vai al quiz</a>
+    <p style="margin:20px 0 0;font-size:13px;color:#5f5f5c">Le domande compaiono una alla volta e non si può tornare indietro: mettiti in un momento tranquillo prima di iniziare.</p>
+  </div></div>`;
+  return { to: person.email, subject, text, html };
+}
+
+// Avvisa tutti i lavoratori abilitati e segna il quiz come notificato.
+async function notifyQuiz(quiz) {
+  if (!mailConfigured()) return { configured: false, sent: 0, failed: [] };
+  const people = await getPeople();
+  if (!people.length) return { configured: true, sent: 0, failed: [] };
+  const r = await sendMails(people.map((p) => quizMail(quiz, p)));
+  quiz.notifiedAt = Date.now();
+  quiz.notifiedCount = r.sent;
+  await db().setJSON("quizzes/" + quiz.id, quiz);
+  return { configured: true, ...r };
+}
+
 /* ---------------- logica del tentativo ---------------- */
 async function finalize(a, quiz, auto) {
   const now = Date.now();
@@ -109,11 +177,11 @@ async function finalize(a, quiz, auto) {
   await saveAttempt(a);
   return a;
 }
-// Lo stato restituito al dipendente: mai le risposte corrette, mai le domande successive.
+// Lo stato restituito al lavoratore: mai le risposte corrette, mai le domande successive.
 async function publicState(a, quiz) {
   if (a.status === "in_corso" && (Date.now() > a.deadline || a.pos >= quiz.questions.length))
     await finalize(a, quiz, a.pos < quiz.questions.length);
-  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto };
+  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto, score: a.score, total: a.total };
   const qi = a.order[a.pos];
   const q = quiz.questions[qi];
   return {
@@ -172,7 +240,7 @@ export default async (req) => {
       return json({ role: s.role, email: s.email || null });
     }
 
-    /* ----- area dipendente ----- */
+    /* ----- area lavoratore ----- */
     if (s.role === "employee") {
       if (!(await getPeople()).some((p) => p.email === s.email)) return fail("Accesso revocato.", 401);
 
@@ -182,7 +250,8 @@ export default async (req) => {
         for (const q of quizzes) {
           const a = await getAttempt(q.id, s.email);
           out.push({ id: q.id, title: q.title, desc: q.desc || "", duration: q.duration, count: q.questions.length,
-            status: a ? a.status : "da_fare", finishedAt: a?.finishedAt || null, name: a?.name || null });
+            status: a ? a.status : "da_fare", finishedAt: a?.finishedAt || null,
+            score: a?.status === "consegnato" ? a.score : null, total: a?.status === "consegnato" ? a.total : null });
         }
         return json({ quizzes: out });
       }
@@ -192,13 +261,11 @@ export default async (req) => {
       if (!quiz || !quiz.active) return fail("Quiz non disponibile.", 404);
 
       if (route === "start" && method === "POST") {
-        const name = String(body.name || "").trim().slice(0, 120);
-        if (!name) return fail("Scrivi nome e cognome.");
         let a = await getAttempt(quiz.id, s.email);
         if (!a) {
           const n = quiz.questions.length, now = Date.now();
           a = {
-            quizId: quiz.id, email: s.email, name, startedAt: now, deadline: now + quiz.duration * 60000,
+            quizId: quiz.id, email: s.email, startedAt: now, deadline: now + quiz.duration * 60000,
             order: quiz.shuffleQ ? shuffle(range(n)) : range(n),
             optOrder: quiz.questions.map((x) => (quiz.shuffleO ? shuffle(range(x.options.length)) : range(x.options.length))),
             answers: {}, pos: 0, status: "in_corso", leaves: 0,
@@ -248,23 +315,36 @@ export default async (req) => {
           id, title: q.title.trim(), desc: (q.desc || "").trim(), duration: q.duration, passPct: q.passPct,
           shuffleQ: !!q.shuffleQ, shuffleO: !!q.shuffleO, active: !!q.active,
           createdAt: old?.createdAt || Date.now(), updatedAt: Date.now(),
+          notifiedAt: old?.notifiedAt || null, notifiedCount: old?.notifiedCount || 0,
           questions: q.questions.map((x) => ({ text: x.text.trim(), options: x.options.map((o) => o.trim()), correct: x.correct })),
         };
         await db().setJSON("quizzes/" + id, clean);
-        return json({ quiz: clean });
+        // Prima attivazione: avvisa via email tutti i lavoratori abilitati
+        const notify = clean.active && !clean.notifiedAt ? await notifyQuiz(clean) : null;
+        return json({ quiz: clean, notify });
       }
       if (method === "PATCH") {
         const q = await getQuiz(body.id);
         if (!q) return fail("Quiz non trovato.", 404);
         q.active = !!body.active; q.updatedAt = Date.now();
         await db().setJSON("quizzes/" + q.id, q);
-        return json({ quiz: q });
+        const notify = q.active && !q.notifiedAt ? await notifyQuiz(q) : null;
+        return json({ quiz: q, notify });
       }
       if (method === "DELETE") {
         await db().delete("quizzes/" + url.searchParams.get("id"));
         return json({ ok: true });
       }
     }
+
+    if (route === "admin/notify" && method === "POST") {
+      const q = await getQuiz(body.id);
+      if (!q) return fail("Quiz non trovato.", 404);
+      if (!q.active) return fail("Attiva il quiz prima di inviare l'avviso.");
+      if (!mailConfigured()) return fail("Invio email non configurato: imposta MAIL_FROM e RESEND_API_KEY (oppure SMTP_*) su Netlify.");
+      return json({ notify: await notifyQuiz(q) });
+    }
+    if (route === "admin/mailstatus" && method === "GET") return json({ configured: mailConfigured() });
 
     if (route === "admin/people") {
       const people = await getPeople();

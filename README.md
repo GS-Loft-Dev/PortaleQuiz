@@ -1,6 +1,6 @@
-# Quiz Dipendenti · GS LOFT
+# Quiz Lavoratori · GS LOFT
 
-Piattaforma per creare quiz a tempo per i dipendenti: una domanda alla volta, senza ritorno indietro, con risultati per il responsabile.
+Piattaforma per creare quiz a tempo per i lavoratori: una domanda alla volta, senza ritorno indietro, con risultati per il responsabile.
 
 - **Frontend**: HTML/CSS/JS statico (`public/`)
 - **Backend**: una Netlify Function (`netlify/functions/api.mjs`) su `/api/*`
@@ -8,12 +8,13 @@ Piattaforma per creare quiz a tempo per i dipendenti: una domanda alla volta, se
 
 ## Sicurezza
 
-- Login responsabile con password, login dipendenti con **email + codice personale**.
+- Login responsabile con password, login lavoratori con **email + codice personale**.
 - Sessione in cookie `HttpOnly`, firmato, valido 12 ore.
-- Il dipendente riceve **una domanda alla volta**: le domande successive e le risposte corrette non arrivano mai al browser.
-- Timer e correzione sono calcolati **sul server**: allo scadere il quiz viene chiuso anche se il dipendente chiude la pagina.
+- Il lavoratore riceve **una domanda alla volta**: le domande successive e le risposte corrette non arrivano mai al browser.
+- Timer e correzione sono calcolati **sul server**: allo scadere il quiz viene chiuso anche se il lavoratore chiude la pagina.
 - Non si può tornare indietro: il server accetta solo la risposta alla domanda corrente.
 - Rimuovendo un'email dagli Accessi, la persona viene esclusa subito, anche se aveva già fatto login.
+- Il lavoratore viene identificato dalla sua email (niente nome da compilare). A fine quiz vede quante risposte ha dato corrette (es. 8/10), ma non quali.
 
 ## Pubblicazione su Netlify
 
@@ -24,16 +25,51 @@ Piattaforma per creare quiz a tempo per i dipendenti: una domanda alla volta, se
    - `ADMIN_PASSWORD`: la password dell'area responsabile (lunga, almeno 12 caratteri)
    - `SESSION_SECRET`: una stringa casuale lunga, per firmare le sessioni.
      Puoi generarla dal Terminale con `openssl rand -hex 32`
+   - Per le email di avviso (facoltativo ma consigliato), vedi la sezione **Email di avviso** qui sotto.
 4. Fai **Deploy** (o "Trigger deploy" dopo aver impostato le variabili).
 5. Apri il sito, scegli **Responsabile** e accedi con la password.
 
 > Pubblicazione con trascinamento (drag & drop) della cartella: **non** funziona, perché le funzioni hanno bisogno della build di Netlify. Usa GitHub oppure la Netlify CLI (`npm i -g netlify-cli`, poi `netlify deploy --prod` da questa cartella).
 
+## Email di avviso
+
+Quando un quiz viene **attivato per la prima volta**, tutti i lavoratori negli Accessi ricevono un'email con titolo del quiz, link al sito, la loro email e il loro codice. Dalla lista quiz c'è anche il pulsante **Invia di nuovo avviso**.
+
+Serve un servizio di invio. Scegline uno e imposta le variabili su Netlify:
+
+**Opzione A: Resend** (consigliata, piano gratuito fino a 3.000 email/mese)
+1. Crea un account su resend.com e verifica il dominio aziendale (es. gsloft.it) aggiungendo i record DNS indicati.
+2. Crea una API key.
+3. Variabili: `RESEND_API_KEY` = la chiave, `MAIL_FROM` = `Quiz GS LOFT <quiz@gsloft.it>`
+
+**Opzione B: SMTP della casella aziendale** (Google Workspace, Aruba, Microsoft 365…)
+- `SMTP_HOST` (es. `smtp.gmail.com`, `smtps.aruba.it`, `smtp.office365.com`)
+- `SMTP_PORT` (465 oppure 587)
+- `SMTP_USER`, `SMTP_PASS` (per Gmail/Workspace serve una "password per le app")
+- `MAIL_FROM` = `Quiz GS LOFT <indirizzo della casella>`
+
+Il link nelle email è l'indirizzo del sito Netlify. Se usi un dominio tuo, imposta anche `SITE_URL` (es. `https://quiz.gsloft.it`).
+Se l'invio non è configurato il sito funziona lo stesso: l'area responsabile lo segnala e i codici vanno mandati a mano (pulsante "Copia" negli Accessi).
+
+## Importare un quiz da Excel o CSV
+
+Nella lista quiz clicca **Importa da Excel/CSV** (oppure, dentro un quiz, **Aggiungi domande da Excel/CSV**).
+Usa il modello: `modello-quiz.xlsx` o `modello-quiz.csv` (scaricabili anche dall'editor del quiz).
+
+| Domanda | Risposta A | Risposta B | Risposta C | Risposta D | Corretta |
+|---|---|---|---|---|---|
+| Entro quanti giorni…? | 7 giorni | 14 giorni | 30 giorni | | B |
+
+- Da 2 a 6 risposte per domanda (colonne vuote ignorate).
+- "Corretta" può essere la lettera (B), il numero (2) o il testo esatto della risposta.
+- Viene letto il primo foglio del file. Il titolo del quiz viene preso dal nome del file e si può cambiare.
+- Dopo l'import si apre l'editor: controlli, imposti durata e soglia, salvi.
+
 ## Uso
 
 1. **Quiz → Nuovo quiz**: titolo, durata, soglia, domande (o incollale in blocco), poi attiva il quiz.
-2. **Accessi**: incolla le email dei dipendenti → vengono generati i codici. "Copia" prepara il messaggio con link, email e codice.
-3. Il dipendente apre il sito, sceglie **Dipendente**, entra con email e codice e svolge il quiz.
+2. **Accessi**: incolla le email dei lavoratori → vengono generati i codici. "Copia" prepara il messaggio con link, email e codice.
+3. Attiva il quiz: parte l'email di avviso. Il lavoratore apre il sito, sceglie **Lavoratore**, entra con email e codice e svolge il quiz.
 4. **Risultati**: punteggio, tempo, esito, uscite dalla pagina, dettaglio delle risposte, export CSV, "Nuovo tentativo".
 
 Formato per incollare le domande:
@@ -61,12 +97,14 @@ Per l'uso in locale crea un file `.env` con `ADMIN_PASSWORD=...` e `SESSION_SECR
 
 ```
 netlify.toml                  configurazione Netlify
-package.json                  dipendenza @netlify/blobs
+package.json                  dipendenze @netlify/blobs, nodemailer
 netlify/functions/api.mjs     API: login, quiz, svolgimento, risultati, accessi
 public/index.html             pagina
 public/app.js                 interfaccia
 public/style.css              stile GS LOFT
 public/logo.png               logo (maschera, colorato via CSS)
+public/modello-quiz.xlsx/.csv modelli per l'import
+public/vendor/xlsx.full.min.js  SheetJS 0.18.5 per leggere i file Excel (caricato solo all'import)
 ```
 
 Font: Hanken Grotesk e IBM Plex Mono da Google Fonts. Il Forma DJR aziendale non è incluso perché la licenza desktop non copre l'uso web.

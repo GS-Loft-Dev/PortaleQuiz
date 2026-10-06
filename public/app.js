@@ -1,4 +1,4 @@
-// Quiz Dipendenti GS LOFT — interfaccia (vanilla JS). Tutta la logica sensibile è nel server (/api).
+// Quiz Lavoratori GS LOFT — interfaccia (vanilla JS). Tutta la logica sensibile è nel server (/api).
 (function () {
 const app = document.getElementById('app');
 const S = {
@@ -6,7 +6,7 @@ const S = {
   quizzes: [], people: [], attempts: [],
   view: 'home', tab: 'quiz', draft: null, draftErr: null, sel: null, run: null, preview: false, lastResult: null,
   resFilter: 'all', openDetail: null, askDel: null, askReset: null, askRm: null,
-  saving: false, loginRole: 'employee', loginErr: null, accErr: null,
+  saving: false, loginRole: 'employee', loginErr: null, accErr: null, mailOk: null, importTarget: 'new',
 };
 let timerH = null;
 
@@ -47,8 +47,8 @@ async function boot() {
 }
 async function loadAll() {
   if (S.role === 'admin') {
-    const [q, p, r] = await Promise.all([api('admin/quizzes'), api('admin/people'), api('admin/results')]);
-    S.quizzes = q.quizzes; S.people = p.people; S.attempts = r.attempts;
+    const [q, p, r, m] = await Promise.all([api('admin/quizzes'), api('admin/people'), api('admin/results'), api('admin/mailstatus')]);
+    S.quizzes = q.quizzes; S.people = p.people; S.attempts = r.attempts; S.mailOk = m.configured;
   } else if (S.role === 'employee') {
     S.quizzes = (await api('quizzes')).quizzes;
   }
@@ -77,18 +77,18 @@ function header() {
     <button class="tab" data-act="tab" data-v="results" aria-current="${S.tab === 'results'}">Risultati</button>
     <button class="tab" data-act="tab" data-v="access" aria-current="${S.tab === 'access'}">Accessi</button></nav>` : '';
   const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout"${tabs ? '' : ' style="margin-left:auto"'}>Esci</button>` : '';
-  const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : '';
+  const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : 'Verifiche a tempo';
   return `<header class="top"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
-    <h1 class="sub">PORTALE QUIZ<br>${sub}</h1></div>${tabs}${out}</div></header>`;
+    <h1 class="sub">Quiz lavoratori<br>${sub}</h1></div>${tabs}${out}</div></header>`;
 }
 
 /* ----- accesso ----- */
 function loginView() {
   const emp = S.loginRole === 'employee';
   return `<form class="card stack login" id="loginForm" novalidate>
-    <div><h2>Accedi</h2><p class="muted small">${emp ? "Usa l'email aziendale e il tuo codice di accesso." : 'Area riservata ai responsabili.'}</p></div>
+    <div><h2>Accedi</h2><p class="muted small">${emp ? "Usa l'email aziendale e il codice di accesso che ti ha dato il responsabile." : 'Area riservata al responsabile.'}</p></div>
     <div class="seg" role="group" aria-label="Tipo di accesso">
-      <button type="button" data-act="lrole" data-v="employee" aria-pressed="${emp}">Accesso</button>
+      <button type="button" data-act="lrole" data-v="employee" aria-pressed="${emp}">Lavoratore</button>
       <button type="button" data-act="lrole" data-v="admin" aria-pressed="${!emp}">Responsabile</button></div>
     ${emp ? `<label class="f">Email<input type="text" id="lg-e" inputmode="email" autocomplete="email" placeholder="nome.cognome@gsloft.it"></label>
     <label class="f">Codice di accesso<input type="text" id="lg-c" autocomplete="one-time-code" class="mono" style="text-transform:uppercase;letter-spacing:.12em" placeholder="Es. K7PM3Q"></label>`
@@ -118,13 +118,15 @@ function attemptRows() {
     const n = a.total || (quiz ? quiz.questions.length : 0);
     const score = done ? a.score : 0;
     const pct = done && n ? Math.round(score / n * 100) : 0;
-    return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.name || 'Senza nome' };
+    return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.email };
   }).sort((x, y) => (y.a.startedAt || 0) - (x.a.startedAt || 0));
 }
 function adminHome() {
   const rows = attemptRows();
-  let h = `<div class="stack"><div class="row"><div><h2>I tuoi quiz</h2><p class="muted small">Solo i quiz <b>attivi</b> sono visibili ai dipendenti.</p></div><span class="spacer"></span>
-    <button class="btn primary" data-act="new">+ Nuovo quiz</button></div>`;
+  let h = `<div class="stack"><div class="row"><div><h2>I tuoi quiz</h2><p class="muted small">Solo i quiz <b>attivi</b> sono visibili ai lavoratori.</p></div><span class="spacer"></span>
+    <button class="btn" data-act="importfile" data-v="new">Importa da Excel/CSV</button>
+    <button class="btn primary" data-act="new">+ Nuovo quiz</button></div>
+    ${S.mailOk === false ? '<div class="note">L\'invio delle email non è configurato: i lavoratori non ricevono l\'avviso dei nuovi quiz. Vedi il README per impostarlo su Netlify.</div>' : ''}`;
   if (!S.quizzes.length) return h + `<div class="empty"><h3>Nessun quiz ancora</h3><p>Crea il primo quiz: scrivi le domande o incollale in blocco, imposta durata e soglia di superamento, poi attivalo.</p><p style="margin-top:14px"><button class="btn primary" data-act="new">Crea il primo quiz</button></p></div></div>`;
   h += '<div class="qlist">';
   for (const q of S.quizzes) {
@@ -133,15 +135,16 @@ function adminHome() {
     h += `<div class="card qitem"><div class="stack" style="gap:8px;min-width:0">
       <div class="row"><h3>${esc(q.title)}</h3>${q.active ? '<span class="chip ok">Attivo</span>' : '<span class="chip">Bozza</span>'}</div>
       ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
-      <div class="meta"><span>${q.questions.length} domande</span><span>${q.duration} min</span><span>Soglia ${q.passPct}%</span><span>${done} consegnati</span></div></div>
+      <div class="meta"><span>${q.questions.length} domande</span><span>${q.duration} min</span><span>Soglia ${q.passPct}%</span><span>${done} consegnati</span>${q.notifiedAt ? `<span>Avviso inviato il ${fmtD(q.notifiedAt)} a ${q.notifiedCount}</span>` : ''}</div></div>
       <div class="actions">${ask ? `<span class="small muted">Eliminare il quiz?</span><button class="btn sm danger solid" data-act="delok" data-id="${q.id}">Elimina</button><button class="btn sm" data-act="delno">Annulla</button>` :
       `<button class="btn sm" data-act="toggle" data-id="${q.id}">${q.active ? 'Disattiva' : 'Attiva'}</button>
        <button class="btn sm" data-act="edit" data-id="${q.id}">Modifica</button>
        <button class="btn sm" data-act="preview" data-id="${q.id}">Anteprima</button>
        <button class="btn sm" data-act="seeres" data-id="${q.id}">Risultati</button>
+       ${q.active && S.mailOk ? `<button class="btn sm" data-act="notify" data-id="${q.id}">${q.notifiedAt ? 'Invia di nuovo avviso' : 'Invia avviso'}</button>` : ''}
        <button class="btn sm ghost danger" data-act="delask" data-id="${q.id}">Elimina</button>`}</div></div>`;
   }
-  return h + `</div><p class="small muted">Per far svolgere un quiz: attivalo, autorizza le email nella scheda <b>Accessi</b> e manda a ogni lavoratore il link del sito con la sua email e il suo codice.</p></div>`;
+  return h + `</div><p class="small muted">Quando attivi un quiz per la prima volta, tutti i lavoratori autorizzati nella scheda <b>Accessi</b> ricevono un'email con il link, la loro email e il loro codice.</p></div>`;
 }
 const blankQ = () => ({ text: '', options: ['', '', '', ''], correct: null });
 function editView() {
@@ -151,7 +154,7 @@ function editView() {
   ${d.id && S.attempts.some(a => a.quizId === d.id) ? '<div class="note">Questo quiz è già stato svolto: se cambi domande o risposte corrette, i punteggi già salvati non vengono ricalcolati.</div>' : ''}
   <div class="card stack">
     <label class="f">Titolo<input type="text" id="f-title" data-f="title" value="${esc(d.title)}" placeholder="Es. Procedure di accoglienza clienti"></label>
-    <label class="f">Istruzioni per i dipendenti <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
+    <label class="f">Istruzioni per i lavoratori <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
     <div class="grid3">
       <label class="f">Durata (minuti)<input type="number" id="f-dur" min="1" max="300" data-f="duration" value="${d.duration}"></label>
       <label class="f">Soglia di superamento (%)<input type="number" id="f-pass" min="0" max="100" data-f="passPct" value="${d.passPct}"></label>
@@ -160,7 +163,7 @@ function editView() {
         <label class="check"><input type="checkbox" id="f-so" data-f="shuffleO" ${d.shuffleO ? 'checked' : ''}>Risposte in ordine casuale</label>
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai dipendenti)</label>
+    <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai lavoratori${S.mailOk ? ', alla prima attivazione parte l\'email di avviso' : ''})</label>
   </div>
   <div class="card stack"><div class="row"><h3>Domande</h3><span class="chip acc">${d.questions.length}</span><span class="spacer"></span><span class="hint">Seleziona il pallino della risposta corretta</span></div>`;
   d.questions.forEach((q, qi) => {
@@ -175,6 +178,8 @@ function editView() {
     h += `<div><button class="btn sm" data-act="oadd" data-q="${qi}" ${q.options.length >= 6 ? 'disabled' : ''}>+ Risposta</button></div></div>`;
   });
   h += `<div class="row"><button class="btn" data-act="qadd">+ Aggiungi domanda</button></div>
+    <div class="row"><button class="btn" data-act="importfile" data-v="draft">Aggiungi domande da Excel/CSV</button>
+      <a class="small" href="modello-quiz.xlsx" download>Scarica il modello Excel</a><a class="small" href="modello-quiz.csv" download>Modello CSV</a></div>
     <details class="imp"><summary>Incolla più domande insieme</summary><div class="stack" style="margin-top:12px">
       <p class="small muted">Una domanda per blocco, righe vuote tra i blocchi. Le risposte iniziano con A. B. C. … e l'ultima riga indica quella corretta.</p>
       <pre class="ex">Entro quanti giorni si può sospendere un abbonamento?
@@ -197,6 +202,88 @@ function openEditor(id) {
       questions: q.questions.map(x => ({ text: x.text, options: x.options.slice(), correct: x.correct })) };
   } else S.draft = { id: null, title: '', desc: '', duration: 15, passPct: 70, shuffleQ: true, shuffleO: true, active: false, questions: [blankQ()] };
   S.draftErr = null; S.view = 'edit'; render(); window.scrollTo(0, 0);
+}
+/* importazione da Excel / CSV: colonne Domanda, Risposta A…F, Corretta */
+let xlsxReady = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  return xlsxReady || (xlsxReady = new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = 'vendor/xlsx.full.min.js'; sc.onload = ok; sc.onerror = () => { xlsxReady = null; ko(new Error('Lettore Excel non caricato. Riprova.')); }; document.head.appendChild(sc); }));
+}
+function pickImportFile() {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv,.ods';
+  inp.onchange = () => inp.files[0] && importFile(inp.files[0]); inp.click();
+}
+function rowsToQuestions(rows) {
+  const norm = v => String(v ?? '').trim();
+  rows = rows.map(r => r.map(norm)).filter(r => r.some(Boolean));
+  if (!rows.length) return { questions: [], errors: ['Il file è vuoto.'] };
+  const head = rows[0].map(h => h.toLowerCase());
+  const hasHead = head.some(h => /domand|question|corrett|rispost|opzion|answer/.test(h));
+  let qCol = 0, cCol = -1, oCols = [];
+  if (hasHead) {
+    qCol = Math.max(0, head.findIndex(h => /domand|question/.test(h)));
+    cCol = head.findIndex(h => /corrett|correct|soluz|giust/.test(h));
+    oCols = head.map((h, i) => i).filter(i => i !== qCol && i !== cCol && /rispost|opzion|answer|^[a-f]$/.test(head[i]));
+    if (!oCols.length) oCols = head.map((h, i) => i).filter(i => i !== qCol && i !== cCol);
+    rows = rows.slice(1);
+  } else {
+    const w = Math.max(...rows.map(r => r.length)); cCol = w - 1; oCols = range(w).slice(1, -1);
+  }
+  const questions = [], errors = [];
+  rows.forEach((r, k) => {
+    const line = k + (hasHead ? 2 : 1);
+    const text = r[qCol]; if (!text) return;
+    const opts = oCols.map(i => r[i]).filter(Boolean).slice(0, 6);
+    if (opts.length < 2) { errors.push(`Riga ${line}: servono almeno 2 risposte.`); return; }
+    const c = cCol >= 0 ? r[cCol] : '';
+    let correct = null;
+    if (/^[a-f]$/i.test(c)) correct = c.toUpperCase().charCodeAt(0) - 65;
+    else if (/^[1-6]$/.test(c)) correct = +c - 1;
+    else if (c) correct = opts.findIndex(o => o.toLowerCase() === c.toLowerCase());
+    if (!(correct >= 0 && correct < opts.length)) { errors.push(`Riga ${line}: risposta corretta mancante o non valida ("${c}").`); correct = null; }
+    questions.push({ text, options: opts, correct });
+  });
+  return { questions, errors };
+}
+async function importFile(file) {
+  try {
+    let rows;
+    if (/\.csv$/i.test(file.name)) {
+      const txt = (await file.text()).replace(/^\ufeff/, '');
+      const first = txt.split(/\r?\n/)[0] || '';
+      const sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : (first.includes('\t') ? '\t' : ',');
+      rows = parseCsv(txt, sep);
+    } else {
+      await loadXLSX();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false });
+    }
+    const { questions, errors } = rowsToQuestions(rows);
+    if (!questions.length) { toast(errors[0] || 'Nessuna domanda trovata nel file.'); return; }
+    if (S.importTarget === 'draft' && S.draft) {
+      S.draft.questions = S.draft.questions.filter(q => q.text.trim() || q.options.some(o => o.trim())).concat(questions);
+    } else {
+      openEditor(null);
+      S.draft.title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+      S.draft.questions = questions;
+    }
+    S.draftErr = errors.length ? `Importate ${questions.length} domande. Da controllare: ` + errors.slice(0, 5).join(' ') + (errors.length > 5 ? ` (e altre ${errors.length - 5})` : '') : null;
+    S.view = 'edit'; render();
+    toast(`${questions.length} domande importate`);
+  } catch (e) { toast(e.message || 'File non leggibile.'); }
+}
+function parseCsv(txt, sep) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < txt.length; i++) {
+    const ch = txt[i];
+    if (q) { if (ch === '"') { if (txt[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === sep) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && txt[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
 }
 function parseImport(txt) {
   const out = [];
@@ -230,11 +317,18 @@ async function saveDraft() {
   if (S.draftErr) { render(); return; }
   S.saving = true; render();
   try {
-    await api('admin/quizzes', { method: 'PUT', body: { quiz: { id: d.id, title: d.title, desc: d.desc, duration: Math.round(+d.duration), passPct: Math.round(+d.passPct),
+    const res = await api('admin/quizzes', { method: 'PUT', body: { quiz: { id: d.id, title: d.title, desc: d.desc, duration: Math.round(+d.duration), passPct: Math.round(+d.passPct),
       shuffleQ: d.shuffleQ, shuffleO: d.shuffleO, active: d.active, questions } } });
     S.saving = false; S.draft = null; S.view = 'home'; S.tab = 'quiz';
-    toast('Quiz salvato'); await refresh();
+    if (res.notify) notifyToast(res.notify); else toast('Quiz salvato');
+    await refresh();
   } catch (e) { S.saving = false; if (e.message !== '401') { S.draftErr = e.message; render(); } }
+}
+
+function notifyToast(n) {
+  if (!n) return;
+  if (!n.configured) { toast('Quiz attivato. Email non configurate: avvisa i lavoratori a mano.'); return; }
+  toast(n.failed && n.failed.length ? `Avviso inviato a ${n.sent}, non riuscito per ${n.failed.length}` : `Avviso inviato a ${n.sent} lavoratori`);
 }
 
 /* ----- responsabile: risultati ----- */
@@ -251,11 +345,11 @@ function resultsView() {
     <div class="stats"><div class="stat"><b>${done.length}</b><span>Consegnati</span></div><div class="stat"><b>${passed.length}</b><span>Superati</span></div>
     <div class="stat"><b>${done.length - passed.length}</b><span>Non superati</span></div><div class="stat"><b>${avg}%</b><span>Punteggio medio</span></div></div>`;
   if (!rows.length) return h + `<div class="empty"><h3>Nessun risultato ancora</h3><p>Quando un lavoratore consegna un quiz, qui trovi punteggio, tempo impiegato ed esito.</p></div></div>`;
-  h += `<div class="tbl-wrap"><table><thead><tr><th>lavoratore</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
+  h += `<div class="tbl-wrap"><table><thead><tr><th>Email</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const k = r.a.key, open = S.openDetail === k;
     const esito = !r.done ? '<span class="chip warn">In corso</span>' : r.pass ? '<span class="chip ok">Superato</span>' : '<span class="chip bad">Non superato</span>';
-    h += `<tr><td>${esc(r.name)}<div class="small muted">${esc(r.a.email)}</div></td><td>${esc(r.quiz ? r.quiz.title : 'Quiz eliminato')}</td><td class="num">${fmtD(r.a.startedAt)}</td>
+    h += `<tr><td>${esc(r.a.email)}</td><td>${esc(r.quiz ? r.quiz.title : 'Quiz eliminato')}</td><td class="num">${fmtD(r.a.startedAt)}</td>
       <td class="num">${r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '—'}${r.a.auto ? ' <span class="chip warn">tempo scaduto</span>' : ''}</td>
       <td class="num">${r.done ? `${r.score}/${r.n} · ${r.pct}%` : '—'}</td><td>${esito}</td><td class="num">${r.a.leaves || 0}</td>
       <td><div class="row" style="flex-wrap:nowrap">${r.quiz ? `<button class="btn sm" data-act="detail" data-k="${esc(k)}">${open ? 'Chiudi' : 'Dettaglio'}</button>` : ''}
@@ -275,8 +369,8 @@ function resultsView() {
 function exportCsv() {
   let rows = attemptRows(); if (S.resFilter !== 'all') rows = rows.filter(r => r.a.quizId === S.resFilter);
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const lines = [['lavoratore', 'Email', 'Quiz', 'Inizio', 'Fine', 'Durata', 'Corrette', 'Totale', 'Percentuale', 'Esito', 'Uscite dalla pagina', 'Tempo scaduto'].map(q).join(';')];
-  for (const r of rows) lines.push([r.name, r.a.email, r.quiz ? r.quiz.title : 'Quiz eliminato', fmtD(r.a.startedAt), fmtD(r.a.finishedAt), r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '',
+  const lines = [['Email', 'Quiz', 'Inizio', 'Fine', 'Durata', 'Corrette', 'Totale', 'Percentuale', 'Esito', 'Uscite dalla pagina', 'Tempo scaduto'].map(q).join(';')];
+  for (const r of rows) lines.push([r.a.email, r.quiz ? r.quiz.title : 'Quiz eliminato', fmtD(r.a.startedAt), fmtD(r.a.finishedAt), r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '',
     r.done ? r.score : '', r.n, r.done ? r.pct + '%' : '', !r.done ? 'In corso' : r.pass ? 'Superato' : 'Non superato', r.a.leaves || 0, r.a.auto ? 'Sì' : 'No'].map(q).join(';'));
   const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = 'risultati-quiz.csv'; document.body.appendChild(a); a.click(); a.remove();
@@ -317,7 +411,7 @@ function employeeHome() {
   h += '<div class="qlist">';
   for (const q of S.quizzes) {
     const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia</button>`
-      : q.status === 'consegnato' ? `<span class="chip ok">Consegnato</span>`
+      : q.status === 'consegnato' ? `<span class="chip ok">Consegnato${q.total ? ` · ${q.score}/${q.total} corrette` : ''}</span>`
       : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi</button>`;
     h += `<div class="card qitem"><div class="stack" style="gap:6px;min-width:0"><h3>${esc(q.title)}</h3>
       ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
@@ -329,7 +423,6 @@ function employeeHome() {
 function introView() {
   const q = S.quizzes.find(x => x.id === S.sel); if (!q) return '';
   const n = q.count ?? q.questions.length;
-  const prevName = S.quizzes.find(x => x.name)?.name || '';
   return `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="home">← Indietro</button>${S.preview ? '<span class="chip acc">Anteprima: nessun dato salvato</span>' : ''}</div>
   <div class="card stack"><h2>${esc(q.title)}</h2>${q.desc ? `<p>${esc(q.desc)}</p>` : ''}
     <ol class="rules">
@@ -339,8 +432,7 @@ function introView() {
       <li>Allo scadere del tempo il quiz viene consegnato automaticamente, con le risposte date fino a quel momento.</li>
       <li>Resta su questa pagina: le uscite dalla pagina vengono registrate.</li>
     </ol>
-    <label class="f">Nome e cognome<input type="text" id="nm" value="${esc(S.preview ? 'Anteprima' : prevName)}" placeholder="Es. Maria Rossi" autocomplete="name"></label>
-    <div id="nmerr" class="err" hidden>Scrivi nome e cognome per iniziare.</div>
+    ${S.preview ? '' : `<p class="small muted">Il risultato verrà registrato a nome di <b>${esc(S.email)}</b>.</p>`}
     <div class="row"><span class="spacer"></span><button class="btn primary" data-act="start" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Avvio…' : 'Inizia il quiz'}</button></div>
   </div></div>`;
 }
@@ -358,8 +450,9 @@ function doneView() {
   const r = S.lastResult || {};
   let h = `<div class="card stack" style="text-align:center;align-items:center;padding:36px 20px;margin-top:8px"><span class="chip ok">Quiz consegnato</span>
     <h2>${esc(r.title || '')}</h2>${r.auto ? '<p class="muted">Il tempo è scaduto: il quiz è stato consegnato con le risposte date fino a quel momento.</p>' : ''}`;
-  if (S.preview && r.n) h += `<div class="big">${r.score}/${r.n}</div><p class="muted">Anteprima: ${r.pct}% · ${r.pass ? 'superato' : 'non superato'} (soglia ${r.passPct}%). Nessun dato è stato salvato.</p>`;
-  else h += `<p class="muted">Grazie. Il responsabile vedrà il risultato.</p>`;
+  if (r.n) h += `<div class="big">${r.score}/${r.n}</div><p class="muted">${r.score === 1 ? 'risposta corretta' : 'risposte corrette'}</p>`;
+  if (S.preview && r.n) h += `<p class="muted">Anteprima: ${r.pct}% · ${r.pass ? 'superato' : 'non superato'} (soglia ${r.passPct}%). Nessun dato è stato salvato.</p>`;
+  else if (!S.preview) h += `<p class="muted">Grazie, il risultato è stato registrato.</p>`;
   return h + `<button class="btn" data-act="home">Torna ai quiz</button></div>`;
 }
 
@@ -367,7 +460,7 @@ function doneView() {
 function applyState(st) {
   if (st.status === 'consegnato') {
     clearInterval(timerH);
-    S.lastResult = { title: st.title, auto: st.auto, ...(st.preview || {}) };
+    S.lastResult = st.preview ? { title: st.title, auto: st.auto, ...st.preview } : { title: st.title, auto: st.auto, score: st.score, n: st.total };
     S.run = null; S.view = 'done'; render(); refreshQuietly(); return;
   }
   const same = S.run && S.run.pos === st.pos && S.run.quizId === st.quizId;
@@ -390,11 +483,9 @@ async function onExpire() {
   catch (e) { if (e.message !== '401') { toast('Connessione assente: il quiz verrà consegnato appena possibile.'); S.run.expiring = false; } }
 }
 async function startQuiz() {
-  const name = (document.getElementById('nm')?.value || '').trim();
-  if (!name) { document.getElementById('nmerr').hidden = false; return; }
   if (S.preview) { applyState(Preview.start(S.quizzes.find(x => x.id === S.sel))); return; }
   S.saving = true; render();
-  try { const st = await api('start', { method: 'POST', body: { quizId: S.sel, name } }); S.saving = false; applyState(st); }
+  try { const st = await api('start', { method: 'POST', body: { quizId: S.sel } }); S.saving = false; applyState(st); }
   catch (e) { S.saving = false; render(); if (e.message !== '401') toast(e.message); }
 }
 async function confirmAnswer() {
@@ -463,7 +554,11 @@ app.addEventListener('click', async e => {
         const miss = qs.filter(q => q.correct == null).length; render();
         toast(`${qs.length} domande importate` + (miss ? ` · ${miss} senza risposta corretta` : '')); break;
       }
-      case 'toggle': { const q = S.quizzes.find(x => x.id === b.dataset.id); await api('admin/quizzes', { method: 'PATCH', body: { id: q.id, active: !q.active } }); toast(q.active ? 'Quiz disattivato' : 'Quiz attivato'); await refresh(); break; }
+      case 'toggle': { const q = S.quizzes.find(x => x.id === b.dataset.id); b.disabled = true;
+        const r = await api('admin/quizzes', { method: 'PATCH', body: { id: q.id, active: !q.active } });
+        if (r.notify) notifyToast(r.notify); else toast(q.active ? 'Quiz disattivato' : 'Quiz attivato'); await refresh(); break; }
+      case 'notify': { b.disabled = true; b.textContent = 'Invio…'; const r = await api('admin/notify', { method: 'POST', body: { id: b.dataset.id } }); notifyToast(r.notify); await refresh(); break; }
+      case 'importfile': S.importTarget = b.dataset.v; pickImportFile(); break;
       case 'delask': S.askDel = b.dataset.id; render(); break;
       case 'delno': S.askDel = null; render(); break;
       case 'delok': S.askDel = null; await api('admin/quizzes?id=' + encodeURIComponent(b.dataset.id), { method: 'DELETE' }); toast('Quiz eliminato'); await refresh(); break;

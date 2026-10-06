@@ -3,6 +3,7 @@
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
 import nodemailer from "nodemailer";
+import { TEMPLATE_XLSX_B64, TEMPLATE_CSV } from "./templates.mjs";
 
 export const config = { path: "/api/*" };
 
@@ -88,6 +89,8 @@ function validateQuiz(q) {
   if (q.desc && (typeof q.desc !== "string" || q.desc.length > 2000)) return "Istruzioni troppo lunghe.";
   if (!Number.isInteger(q.duration) || q.duration < 1 || q.duration > 300) return "Durata tra 1 e 300 minuti.";
   if (!Number.isInteger(q.passPct) || q.passPct < 0 || q.passPct > 100) return "Soglia tra 0 e 100.";
+  if (q.audience != null && (!Array.isArray(q.audience) || q.audience.length > 1000 || !q.audience.every((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normEmail(e)))))
+    return "Indirizzi non validi in \"Visibile a\".";
   if (!Array.isArray(q.questions) || q.questions.length < 1 || q.questions.length > 300) return "Servono da 1 a 300 domande.";
   for (const [i, x] of q.questions.entries()) {
     if (!str(x.text, 3000)) return `Domanda ${i + 1}: testo mancante.`;
@@ -186,7 +189,7 @@ function accessMail(person, activeQuizzes, renewed) {
 async function sendAccess(targets, renewed = false) {
   if (!mailConfigured() || !targets.length) return { configured: mailConfigured(), sent: 0, failed: [] };
   const active = (await listQuizzes()).filter((q) => q.active);
-  const r = await sendMails(targets.map((p) => accessMail(p, active, renewed)));
+  const r = await sendMails(targets.map((p) => accessMail(p, active.filter((q) => canSee(q, p.email)), renewed)));
   const ok = new Set(targets.map((p) => p.email).filter((e) => !r.failed.includes(e)));
   const list = (await getPeople()).map((p) => (ok.has(p.email) ? { ...p, mailedAt: Date.now() } : p));
   await db().setJSON("people", { list });
@@ -194,16 +197,26 @@ async function sendAccess(targets, renewed = false) {
 }
 
 // Avvisa tutti i lavoratori abilitati e segna il quiz come notificato.
-async function notifyQuiz(quiz) {
+// Destinatari: tutti gli autorizzati, oppure solo quelli indicati in "Visibile a".
+// Di default avvisa solo chi non è ancora stato avvisato per questo quiz; force = tutti.
+async function notifyQuiz(quiz, force = false) {
   if (!mailConfigured()) return { configured: false, sent: 0, failed: [] };
   const people = await getPeople();
-  if (!people.length) return { configured: true, sent: 0, failed: [] };
-  const r = await sendMails(people.map((p) => quizMail(quiz, p)));
+  // quiz avvisati con la versione precedente (senza elenco): considera già avvisati tutti
+  if (!quiz.notified && quiz.notifiedAt) quiz.notified = people.map((p) => p.email);
+  const already = new Set(quiz.notified || []);
+  const targets = people.filter((p) => canSee(quiz, p.email) && (force || !already.has(p.email)));
+  if (!targets.length) return { configured: true, sent: 0, failed: [] };
+  const r = await sendMails(targets.map((p) => quizMail(quiz, p)));
+  const ok = targets.map((p) => p.email).filter((e) => !r.failed.includes(e));
+  quiz.notified = [...new Set([...(quiz.notified || []), ...ok])];
   quiz.notifiedAt = Date.now();
-  quiz.notifiedCount = r.sent;
+  quiz.notifiedCount = quiz.notified.length;
   await db().setJSON("quizzes/" + quiz.id, quiz);
   return { configured: true, ...r };
 }
+// Un quiz è visibile a un lavoratore se è attivo e "Visibile a" è vuoto o contiene la sua email.
+const canSee = (quiz, email) => !quiz.audience || !quiz.audience.length || quiz.audience.includes(normEmail(email));
 
 /* ---------------- sezioni ---------------- */
 // Sezioni nell'ordine in cui compaiono nel quiz.
@@ -243,7 +256,7 @@ async function finalize(a, quiz, auto) {
 async function publicState(a, quiz) {
   if (a.status === "in_corso" && (Date.now() > a.deadline || a.pos >= quiz.questions.length))
     await finalize(a, quiz, a.pos < quiz.questions.length);
-  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto, score: a.score, total: a.total, sections: a.sections || [] };
+  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto }; // nessun punteggio al lavoratore
   const qi = a.order[a.pos];
   const q = quiz.questions[qi];
   return {
@@ -304,23 +317,23 @@ export default async (req) => {
 
     /* ----- area lavoratore ----- */
     if (s.role === "employee") {
+      if (route.startsWith("admin/")) return fail("Riservato al responsabile.", 403);
       if (!(await getPeople()).some((p) => p.email === s.email)) return fail("Accesso revocato.", 401);
 
       if (route === "quizzes" && method === "GET") {
-        const quizzes = (await listQuizzes()).filter((q) => q.active);
+        const quizzes = (await listQuizzes()).filter((q) => q.active && canSee(q, s.email));
         const out = [];
         for (const q of quizzes) {
           const a = await getAttempt(q.id, s.email);
           out.push({ id: q.id, title: q.title, desc: q.desc || "", duration: q.duration, count: q.questions.length,
-            status: a ? a.status : "da_fare", finishedAt: a?.finishedAt || null,
-            score: a?.status === "consegnato" ? a.score : null, total: a?.status === "consegnato" ? a.total : null });
+            status: a ? a.status : "da_fare", finishedAt: a?.finishedAt || null });
         }
         return json({ quizzes: out });
       }
 
       const quizId = body.quizId || url.searchParams.get("quizId");
       const quiz = quizId && (await getQuiz(quizId));
-      if (!quiz || !quiz.active) return fail("Quiz non disponibile.", 404);
+      if (!quiz || !quiz.active || !canSee(quiz, s.email)) return fail("Quiz non disponibile.", 404);
 
       if (route === "start" && method === "POST") {
         let a = await getAttempt(quiz.id, s.email);
@@ -377,12 +390,13 @@ export default async (req) => {
           id, title: q.title.trim(), desc: (q.desc || "").trim(), duration: q.duration, passPct: q.passPct,
           shuffleQ: !!q.shuffleQ, shuffleO: !!q.shuffleO, active: !!q.active,
           createdAt: old?.createdAt || Date.now(), updatedAt: Date.now(),
-          notifiedAt: old?.notifiedAt || null, notifiedCount: old?.notifiedCount || 0,
+          audience: [...new Set((q.audience || []).map(normEmail))],
+          notified: old?.notified || [], notifiedAt: old?.notifiedAt || null, notifiedCount: old?.notifiedCount || 0,
           questions: q.questions.map((x) => ({ text: x.text.trim(), options: x.options.map((o) => o.trim()), correct: x.correct, section: (x.section || "").trim() })),
         };
         await db().setJSON("quizzes/" + id, clean);
-        // Prima attivazione: avvisa via email tutti i lavoratori abilitati
-        const notify = clean.active && !clean.notifiedAt ? await notifyQuiz(clean) : null;
+        // Quiz attivo: avvisa via email chi lo può vedere e non è ancora stato avvisato
+        const notify = clean.active ? await notifyQuiz(clean) : null;
         return json({ quiz: clean, notify });
       }
       if (method === "PATCH") {
@@ -390,7 +404,7 @@ export default async (req) => {
         if (!q) return fail("Quiz non trovato.", 404);
         q.active = !!body.active; q.updatedAt = Date.now();
         await db().setJSON("quizzes/" + q.id, q);
-        const notify = q.active && !q.notifiedAt ? await notifyQuiz(q) : null;
+        const notify = q.active ? await notifyQuiz(q) : null;
         return json({ quiz: q, notify });
       }
       if (method === "DELETE") {
@@ -404,7 +418,17 @@ export default async (req) => {
       if (!q) return fail("Quiz non trovato.", 404);
       if (!q.active) return fail("Attiva il quiz prima di inviare l'avviso.");
       if (!mailConfigured()) return fail("Invio email non configurato: imposta MAIL_FROM e RESEND_API_KEY (oppure SMTP_*) su Netlify.");
-      return json({ notify: await notifyQuiz(q) });
+      return json({ notify: await notifyQuiz(q, true) });
+    }
+    if (route === "admin/template" && method === "GET") {
+      const csv = url.searchParams.get("format") === "csv";
+      return new Response(csv ? TEMPLATE_CSV : Buffer.from(TEMPLATE_XLSX_B64, "base64"), {
+        headers: {
+          "content-type": csv ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "content-disposition": `attachment; filename="modello-quiz.${csv ? "csv" : "xlsx"}"`,
+          "cache-control": "no-store",
+        },
+      });
     }
     if (route === "admin/mailstatus" && method === "GET") return json({ configured: mailConfigured() });
 

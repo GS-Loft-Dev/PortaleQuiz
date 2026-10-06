@@ -144,3 +144,8 @@ td.detail{white-space:normal;background:var(--bg)}
 .secbar i.ok{background:var(--ok)} .secbar i.warn{background:var(--warn)} .secbar i.bad{background:var(--bad)}
 .secval{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:.82rem;color:var(--muted);white-space:nowrap}
 @media (max-width:520px){.secrow{grid-template-columns:minmax(0,1fr) auto}.secbar{grid-column:1/-1;grid-row:2}}
+
+/* dashboard */
+.bands{display:grid;gap:8px}
+.band{display:grid;grid-template-columns:minmax(80px,2fr) minmax(0,1.2fr) auto;gap:12px;align-items:center;font-size:.9rem}
+td.wrap{white-space:normal;min-width:240px;max-width:460px}

@@ -14,7 +14,7 @@ Piattaforma per creare quiz a tempo per i lavoratori: una domanda alla volta, se
 - Timer e correzione sono calcolati **sul server**: allo scadere il quiz viene chiuso anche se il lavoratore chiude la pagina.
 - Non si può tornare indietro: il server accetta solo la risposta alla domanda corrente.
 - Rimuovendo un'email dagli Accessi, la persona viene esclusa subito, anche se aveva già fatto login.
-- Il lavoratore viene identificato dalla sua email (niente nome da compilare). A fine quiz vede quante risposte ha dato corrette (es. 8/10), ma non quali.
+- Il lavoratore viene identificato dalla sua email (niente nome da compilare). A fine quiz vede solo **"Test terminato"**: nessun punteggio e nessuna risposta corretta/errata (il server non glieli invia).
 
 ## Pubblicazione su Netlify
 
@@ -57,11 +57,11 @@ Se l'invio non è configurato il sito funziona lo stesso: l'area responsabile lo
 ## Importare un quiz da Excel o CSV
 
 Nella lista quiz clicca **Importa da Excel/CSV** (oppure, dentro un quiz, **Aggiungi domande da Excel/CSV**).
-Usa il modello: `modello-quiz.xlsx` o `modello-quiz.csv` (scaricabili anche dall'editor del quiz).
+Usa il modello: pulsante **Scarica modello di import** nella lista quiz (o "Scarica modello Excel / Modello CSV" nell'editor). Il download è riservato all'area responsabile: il file non è pubblico sul sito.
 
-| Domanda | Risposta A | Risposta B | Risposta C | Risposta D | Corretta |
-|---|---|---|---|---|---|
-| Entro quanti giorni…? | 7 giorni | 14 giorni | 30 giorni | | B |
+| Sezione | Domanda | Risposta A | Risposta B | Risposta C | Risposta D | Corretta |
+|---|---|---|---|---|---|---|
+| Procedure | Entro quanti giorni…? | 7 giorni | 14 giorni | 30 giorni | | B |
 
 - Da 2 a 6 risposte per domanda (colonne vuote ignorate).
 - "Corretta" può essere la lettera (B), il numero (2) o il testo esatto della risposta.
@@ -78,9 +78,18 @@ Ogni domanda può appartenere a una sezione (es. Nutrizione, Sonno…):
 
 Con le sezioni:
 - le domande vengono proposte sezione per sezione; l'ordine casuale mescola solo dentro ogni sezione;
-- il lavoratore, a fine quiz, vede il totale e il punteggio di ogni sezione;
-- in **Risultati**, scegliendo un quiz dal filtro, trovi la **media per sezione** di tutti i consegnati (verde da 80%, arancio 60-79%, rosso sotto 60%) e, nel **Dettaglio** di ognuno, il punteggio per sezione e le risposte raggruppate;
+- la **Dashboard** mostra la media per area di tutti i consegnati (verde da 80%, arancio 60-79%, rosso sotto 60%); in **Risultati individuali** il **Dettaglio** di ognuno riporta il punteggio per area e le risposte raggruppate;
 - l'**export CSV** aggiunge per ogni sezione le colonne corrette, totale e %.
+
+## Analisi dei risultati (solo responsabile)
+
+- **Dashboard** (dati aggregati e anonimi, adatta alla restituzione al team): test consegnati, punteggio medio e mediana, tempo medio, distribuzione per fascia (≥80%, 60-79%, <60%), media per area e le domande più sbagliate con l'errore più frequente. "Esporta dati aggregati" scarica tutto in CSV, senza nomi.
+- **Risultati individuali** (riservati): punteggio, tempo, uscite dalla pagina e dettaglio delle risposte di ogni professionista, export CSV con le colonne per area.
+
+## Durata e test preventivo
+
+- La durata è un tempo totale. Nell'editor i pulsanti "30 / 45 / 60 s/domanda" la calcolano dal numero di domande (es. 115 × 45 s = 87 minuti).
+- **Visibile a**: "Solo questi indirizzi" rende il quiz visibile (e invia l'avviso) solo alle email indicate, per esempio il responsabile che lo svolge in anticipo. Passando a "Tutti gli autorizzati", gli altri lavoratori lo vedono e ricevono l'avviso; chi l'ha già ricevuto non lo riceve di nuovo.
 
 ## Uso
 
@@ -120,7 +129,7 @@ public/index.html             pagina
 public/app.js                 interfaccia
 public/style.css              stile GS LOFT
 public/logo.png               logo (maschera, colorato via CSS)
-public/modello-quiz.xlsx/.csv modelli per l'import
+netlify/functions/templates.mjs modelli Excel/CSV per l'import (serviti solo ai responsabili)
 public/vendor/xlsx.full.min.js  SheetJS 0.18.5 per leggere i file Excel (caricato solo all'import)
 ```
 

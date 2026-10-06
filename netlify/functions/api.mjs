@@ -95,6 +95,7 @@ function validateQuiz(q) {
       return `Domanda ${i + 1}: servono da 2 a 6 risposte compilate.`;
     if (!Number.isInteger(x.correct) || x.correct < 0 || x.correct >= x.options.length)
       return `Domanda ${i + 1}: indica la risposta corretta.`;
+    if (x.section != null && (typeof x.section !== "string" || x.section.length > 120)) return `Domanda ${i + 1}: nome della sezione non valido.`;
   }
   return null;
 }
@@ -154,6 +155,44 @@ function quizMail(quiz, person) {
   return { to: person.email, subject, text, html };
 }
 
+// Email di benvenuto (accesso creato) o di nuovo codice.
+function accessMail(person, activeQuizzes, renewed) {
+  const link = siteUrl() || "(link del sito)";
+  const subject = renewed ? "Il tuo nuovo codice per i Quiz GS LOFT" : "Il tuo accesso ai Quiz GS LOFT";
+  const intro = renewed
+    ? "il tuo codice di accesso ai Quiz GS LOFT è stato rinnovato. Quello precedente non funziona più."
+    : "ti è stato creato l'accesso ai Quiz GS LOFT, la piattaforma per i quiz di verifica dei lavoratori.";
+  const nq = activeQuizzes.length;
+  const quizLine = nq ? (nq === 1 ? `C'è già un quiz da svolgere: "${activeQuizzes[0].title}".` : `Ci sono già ${nq} quiz da svolgere.`)
+    : "Quando verrà pubblicato un quiz riceverai un'email di avviso.";
+  const text = `Ciao,\n\n${intro}\n\nAccedi da: ${link}\nScegli "Lavoratore" e inserisci:\nEmail: ${person.email}\nCodice di accesso: ${person.code}\n\n${quizLine}\n\nConserva questa email: il codice ti servirà per tutti i quiz.\n\nGS LOFT`;
+  const html = `<div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#111">
+  <div style="background:#111;color:#fff;padding:18px 24px;font-weight:700;letter-spacing:.04em;font-size:20px">GS·LOFT</div>
+  <div style="padding:24px;border:1px solid #e1e1de;border-top:0">
+    <p style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#0a7a6d;font-weight:700">${renewed ? "Nuovo codice" : "Accesso creato"}</p>
+    <h1 style="margin:0 0 12px;font-size:22px">Quiz lavoratori</h1>
+    <p style="margin:0 0 18px">Ciao, ${escHtml(intro)}</p>
+    <p style="margin:0 0 8px;color:#5f5f5c">Apri il sito, scegli <b>Lavoratore</b> e inserisci:</p>
+    <table style="border-collapse:collapse;margin:0 0 20px;font-size:15px"><tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Email</td><td><b>${escHtml(person.email)}</b></td></tr>
+    <tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Codice</td><td style="font-family:Menlo,monospace;font-size:17px;letter-spacing:.12em"><b>${escHtml(person.code)}</b></td></tr></table>
+    <a href="${escHtml(link)}" style="display:inline-block;background:#2ec4b0;color:#0b0b0b;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:6px">Accedi ai quiz</a>
+    <p style="margin:20px 0 0;font-size:14px">${escHtml(quizLine)}</p>
+    <p style="margin:12px 0 0;font-size:13px;color:#5f5f5c">Conserva questa email: il codice ti servirà per tutti i quiz.</p>
+  </div></div>`;
+  return { to: person.email, subject, text, html };
+}
+
+// Invia l'email di accesso alle persone indicate e registra la data di invio nell'elenco.
+async function sendAccess(targets, renewed = false) {
+  if (!mailConfigured() || !targets.length) return { configured: mailConfigured(), sent: 0, failed: [] };
+  const active = (await listQuizzes()).filter((q) => q.active);
+  const r = await sendMails(targets.map((p) => accessMail(p, active, renewed)));
+  const ok = new Set(targets.map((p) => p.email).filter((e) => !r.failed.includes(e)));
+  const list = (await getPeople()).map((p) => (ok.has(p.email) ? { ...p, mailedAt: Date.now() } : p));
+  await db().setJSON("people", { list });
+  return { configured: true, ...r, people: list };
+}
+
 // Avvisa tutti i lavoratori abilitati e segna il quiz come notificato.
 async function notifyQuiz(quiz) {
   if (!mailConfigured()) return { configured: false, sent: 0, failed: [] };
@@ -166,6 +205,28 @@ async function notifyQuiz(quiz) {
   return { configured: true, ...r };
 }
 
+/* ---------------- sezioni ---------------- */
+// Sezioni nell'ordine in cui compaiono nel quiz.
+function sectionNames(quiz) {
+  return [...new Set(quiz.questions.map((q) => q.section || "").filter(Boolean))];
+}
+function sectionScores(quiz, answers) {
+  const names = sectionNames(quiz);
+  if (!names.length) return [];
+  return names.map((name) => {
+    const idx = quiz.questions.map((q, i) => (q.section === name ? i : -1)).filter((i) => i >= 0);
+    return { name, score: idx.filter((i) => answers[i] === quiz.questions[i].correct).length, total: idx.length };
+  });
+}
+// Ordine delle domande: con le sezioni si mantiene l'ordine delle sezioni e si mescola solo all'interno di ciascuna.
+function questionOrder(quiz) {
+  const n = quiz.questions.length;
+  const names = sectionNames(quiz);
+  if (!names.length) return quiz.shuffleQ ? shuffle(range(n)) : range(n);
+  const groups = [...names, ""].map((name) => range(n).filter((i) => (quiz.questions[i].section || "") === name));
+  return groups.flatMap((g) => (quiz.shuffleQ ? shuffle(g) : g));
+}
+
 /* ---------------- logica del tentativo ---------------- */
 async function finalize(a, quiz, auto) {
   const now = Date.now();
@@ -174,6 +235,7 @@ async function finalize(a, quiz, auto) {
   a.finishedAt = auto ? Math.min(now, a.deadline) : now;
   a.total = quiz.questions.length;
   a.score = quiz.questions.reduce((s, q, i) => s + (a.answers[i] === q.correct ? 1 : 0), 0);
+  a.sections = sectionScores(quiz, a.answers);
   await saveAttempt(a);
   return a;
 }
@@ -181,7 +243,7 @@ async function finalize(a, quiz, auto) {
 async function publicState(a, quiz) {
   if (a.status === "in_corso" && (Date.now() > a.deadline || a.pos >= quiz.questions.length))
     await finalize(a, quiz, a.pos < quiz.questions.length);
-  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto, score: a.score, total: a.total };
+  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto, score: a.score, total: a.total, sections: a.sections || [] };
   const qi = a.order[a.pos];
   const q = quiz.questions[qi];
   return {
@@ -191,7 +253,7 @@ async function publicState(a, quiz) {
     pos: a.pos,
     total: quiz.questions.length,
     remainingMs: Math.max(0, a.deadline - Date.now()),
-    question: { text: q.text, options: a.optOrder[qi].map((i) => ({ i, text: q.options[i] })) },
+    question: { text: q.text, section: q.section || "", options: a.optOrder[qi].map((i) => ({ i, text: q.options[i] })) },
   };
 }
 
@@ -266,7 +328,7 @@ export default async (req) => {
           const n = quiz.questions.length, now = Date.now();
           a = {
             quizId: quiz.id, email: s.email, startedAt: now, deadline: now + quiz.duration * 60000,
-            order: quiz.shuffleQ ? shuffle(range(n)) : range(n),
+            order: questionOrder(quiz),
             optOrder: quiz.questions.map((x) => (quiz.shuffleO ? shuffle(range(x.options.length)) : range(x.options.length))),
             answers: {}, pos: 0, status: "in_corso", leaves: 0,
           };
@@ -316,7 +378,7 @@ export default async (req) => {
           shuffleQ: !!q.shuffleQ, shuffleO: !!q.shuffleO, active: !!q.active,
           createdAt: old?.createdAt || Date.now(), updatedAt: Date.now(),
           notifiedAt: old?.notifiedAt || null, notifiedCount: old?.notifiedCount || 0,
-          questions: q.questions.map((x) => ({ text: x.text.trim(), options: x.options.map((o) => o.trim()), correct: x.correct })),
+          questions: q.questions.map((x) => ({ text: x.text.trim(), options: x.options.map((o) => o.trim()), correct: x.correct, section: (x.section || "").trim() })),
         };
         await db().setJSON("quizzes/" + id, clean);
         // Prima attivazione: avvisa via email tutti i lavoratori abilitati
@@ -346,6 +408,15 @@ export default async (req) => {
     }
     if (route === "admin/mailstatus" && method === "GET") return json({ configured: mailConfigured() });
 
+    if (route === "admin/people/send" && method === "POST") {
+      if (!mailConfigured()) return fail("Invio email non configurato: imposta MAIL_FROM e RESEND_API_KEY (oppure SMTP_*) su Netlify.");
+      const email = normEmail(body.email);
+      const p = (await getPeople()).find((x) => x.email === email);
+      if (!p) return fail("Email non trovata negli accessi.", 404);
+      const mail = await sendAccess([p]);
+      return json({ people: mail.people, mail: { configured: true, sent: mail.sent, failed: mail.failed } });
+    }
+
     if (route === "admin/people") {
       const people = await getPeople();
       if (method === "GET") return json({ people });
@@ -357,13 +428,15 @@ export default async (req) => {
         const add = emails.filter((e) => !people.some((p) => p.email === e)).map((email) => ({ email, code: newCode(), addedAt: Date.now() }));
         const list = [...people, ...add];
         await db().setJSON("people", { list });
-        return json({ people: list, added: add.length });
+        const mail = await sendAccess(add);
+        return json({ people: mail.people || list, added: add.length, mail: { configured: mail.configured, sent: mail.sent, failed: mail.failed } });
       }
       if (method === "PATCH") { // nuovo codice per una persona
         const email = normEmail(body.email);
         const list = people.map((p) => (p.email === email ? { ...p, code: newCode() } : p));
         await db().setJSON("people", { list });
-        return json({ people: list });
+        const mail = await sendAccess(list.filter((p) => p.email === email), true);
+        return json({ people: mail.people || list, mail: { configured: mail.configured, sent: mail.sent, failed: mail.failed } });
       }
       if (method === "DELETE") {
         const email = normEmail(url.searchParams.get("email"));

@@ -132,3 +132,15 @@ td.detail{white-space:normal;background:var(--bg)}
 .seg button{border:0;background:none;padding:8px;border-radius:5px;font:600 .9rem var(--f-body);color:var(--muted);cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .logout{background:none;border:1px solid var(--bar-muted);color:var(--bar-ink);border-radius:4px;padding:6px 10px;font:600 .82rem var(--f-body);cursor:pointer}
+
+/* sezioni */
+.sechead{font:700 .74rem var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--accent-text);margin-top:8px}
+.secin{max-width:260px;padding:5px 9px!important;font-size:.85rem!important}
+.secbars{display:grid;gap:8px}
+.secrow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(80px,2fr) auto;gap:12px;align-items:center;font-size:.9rem}
+.secname{min-width:0;overflow-wrap:anywhere}
+.secbar{height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.secbar i{display:block;height:100%;border-radius:99px}
+.secbar i.ok{background:var(--ok)} .secbar i.warn{background:var(--warn)} .secbar i.bad{background:var(--bad)}
+.secval{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:.82rem;color:var(--muted);white-space:nowrap}
+@media (max-width:520px){.secrow{grid-template-columns:minmax(0,1fr) auto}.secbar{grid-column:1/-1;grid-row:2}}

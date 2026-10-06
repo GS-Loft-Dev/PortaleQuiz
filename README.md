@@ -33,7 +33,10 @@ Piattaforma per creare quiz a tempo per i lavoratori: una domanda alla volta, se
 
 ## Email di avviso
 
-Quando un quiz viene **attivato per la prima volta**, tutti i lavoratori negli Accessi ricevono un'email con titolo del quiz, link al sito, la loro email e il loro codice. Dalla lista quiz c'è anche il pulsante **Invia di nuovo avviso**.
+Le email partono in due momenti:
+
+- **Accesso creato**: quando aggiungi un'email negli Accessi, il lavoratore riceve subito link, email e codice personale. Riceve una nuova email anche quando generi un **Nuovo codice**, e puoi reinviarla con **Reinvia email**.
+- **Nuovo quiz**: quando un quiz viene **attivato per la prima volta**, tutti i lavoratori negli Accessi ricevono un'email con titolo del quiz, link al sito, la loro email e il loro codice. Dalla lista quiz c'è anche il pulsante **Invia di nuovo avviso**.
 
 Serve un servizio di invio. Scegline uno e imposta le variabili su Netlify:
 
@@ -65,10 +68,24 @@ Usa il modello: `modello-quiz.xlsx` o `modello-quiz.csv` (scaricabili anche dall
 - Viene letto il primo foglio del file. Il titolo del quiz viene preso dal nome del file e si può cambiare.
 - Dopo l'import si apre l'editor: controlli, imposti durata e soglia, salvi.
 
+## Sezioni e punteggio per sezione
+
+Ogni domanda può appartenere a una sezione (es. Nutrizione, Sonno…):
+
+- **Excel/CSV**: aggiungi una colonna `Sezione`.
+- **Editor**: campo "Sezione" accanto a ogni domanda (suggerisce le sezioni già usate).
+- **Testo incollato**: una riga `SEZIONE: Nome` assegna la sezione alle domande che seguono.
+
+Con le sezioni:
+- le domande vengono proposte sezione per sezione; l'ordine casuale mescola solo dentro ogni sezione;
+- il lavoratore, a fine quiz, vede il totale e il punteggio di ogni sezione;
+- in **Risultati**, scegliendo un quiz dal filtro, trovi la **media per sezione** di tutti i consegnati (verde da 80%, arancio 60-79%, rosso sotto 60%) e, nel **Dettaglio** di ognuno, il punteggio per sezione e le risposte raggruppate;
+- l'**export CSV** aggiunge per ogni sezione le colonne corrette, totale e %.
+
 ## Uso
 
 1. **Quiz → Nuovo quiz**: titolo, durata, soglia, domande (o incollale in blocco), poi attiva il quiz.
-2. **Accessi**: incolla le email dei lavoratori → vengono generati i codici. "Copia" prepara il messaggio con link, email e codice.
+2. **Accessi**: incolla le email dei lavoratori → vengono generati i codici e ognuno riceve la sua email di accesso. "Copia" prepara lo stesso messaggio da mandare a mano.
 3. Attiva il quiz: parte l'email di avviso. Il lavoratore apre il sito, sceglie **Lavoratore**, entra con email e codice e svolge il quiz.
 4. **Risultati**: punteggio, tempo, esito, uscite dalla pagina, dettaglio delle risposte, export CSV, "Nuovo tentativo".
 

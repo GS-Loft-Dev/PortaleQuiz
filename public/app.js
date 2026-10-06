@@ -21,6 +21,23 @@ const fmtD = ts => ts ? new Date(ts).toLocaleString('it-IT', { day: '2-digit', m
 const fmtDur = ms => { if (!(ms >= 0)) return '—'; const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000); return m + 'm ' + pad2(s) + 's'; };
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2800); }
 
+/* sezioni: nomi nell'ordine del quiz e punteggio per sezione */
+const secNames = quiz => [...new Set(quiz.questions.map(q => q.section || '').filter(Boolean))];
+function secScores(quiz, answers) {
+  return secNames(quiz).map(name => {
+    const idx = quiz.questions.map((q, i) => q.section === name ? i : -1).filter(i => i >= 0);
+    return { name, score: idx.filter(i => (answers || {})[i] === quiz.questions[i].correct).length, total: idx.length };
+  });
+}
+const pctOf = (s, t) => t ? Math.round(s / t * 100) : 0;
+function secBars(list, opts = {}) {
+  if (!list || !list.length) return '';
+  return `<div class="secbars">${list.map(x => { const p = x.pct ?? pctOf(x.score, x.total);
+    const cls = p >= 80 ? 'ok' : p >= 60 ? 'warn' : 'bad';
+    return `<div class="secrow"><span class="secname">${esc(x.name)}</span><span class="secbar"><i class="${cls}" style="width:${p}%"></i></span>
+      <span class="secval">${x.label ?? `${x.score}/${x.total}`} · ${p}%</span></div>`; }).join('')}</div>${opts.legend ? '<p class="small muted">Colori: verde da 80%, arancio 60-79%, rosso sotto 60%.</p>' : ''}`;
+}
+
 async function api(path, { method = 'GET', body, keepalive } = {}) {
   const res = await fetch('/api/' + path, {
     method, keepalive, credentials: 'same-origin',
@@ -146,7 +163,7 @@ function adminHome() {
   }
   return h + `</div><p class="small muted">Quando attivi un quiz per la prima volta, tutti i lavoratori autorizzati nella scheda <b>Accessi</b> ricevono un'email con il link, la loro email e il loro codice.</p></div>`;
 }
-const blankQ = () => ({ text: '', options: ['', '', '', ''], correct: null });
+const blankQ = (section = '') => ({ text: '', options: ['', '', '', ''], correct: null, section });
 function editView() {
   const d = S.draft;
   let h = `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="cancel">← Torna ai quiz</button></div>
@@ -165,9 +182,14 @@ function editView() {
     </div>
     <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai lavoratori${S.mailOk ? ', alla prima attivazione parte l\'email di avviso' : ''})</label>
   </div>
-  <div class="card stack"><div class="row"><h3>Domande</h3><span class="chip acc">${d.questions.length}</span><span class="spacer"></span><span class="hint">Seleziona il pallino della risposta corretta</span></div>`;
+  <div class="card stack"><div class="row"><h3>Domande</h3><span class="chip acc">${d.questions.length}</span>${(() => { const n = secNames(d).length; return n ? `<span class="chip">${n} sezioni</span>` : ''; })()}<span class="spacer"></span><span class="hint">Seleziona il pallino della risposta corretta</span></div>
+  <datalist id="secs">${secNames(d).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+  ${secNames(d).length && d.shuffleQ ? '<p class="hint">Con le sezioni l\'ordine casuale mescola le domande solo all\'interno di ogni sezione: le sezioni restano in sequenza.</p>' : ''}`;
   d.questions.forEach((q, qi) => {
-    h += `<div class="qedit stack" style="gap:10px"><div class="row"><span class="num">Domanda ${qi + 1}</span><span class="spacer"></span>
+    if (q.section && q.section !== (d.questions[qi - 1] || {}).section) h += `<div class="sechead">Sezione · ${esc(q.section)}</div>`;
+    h += `<div class="qedit stack" style="gap:10px"><div class="row"><span class="num">Domanda ${qi + 1}</span>
+      <input type="text" class="secin" id="q${qi}-s" data-f="qsec" data-q="${qi}" list="secs" value="${esc(q.section || '')}" placeholder="Sezione (facoltativa)" aria-label="Sezione della domanda ${qi + 1}">
+      <span class="spacer"></span>
       <button class="btn sm ghost danger" data-act="qdel" data-q="${qi}">Rimuovi domanda</button></div>
       <textarea id="q${qi}-t" data-f="qtext" data-q="${qi}" rows="2" placeholder="Testo della domanda">${esc(q.text)}</textarea>`;
     q.options.forEach((o, oi) => {
@@ -181,7 +203,7 @@ function editView() {
     <div class="row"><button class="btn" data-act="importfile" data-v="draft">Aggiungi domande da Excel/CSV</button>
       <a class="small" href="modello-quiz.xlsx" download>Scarica il modello Excel</a><a class="small" href="modello-quiz.csv" download>Modello CSV</a></div>
     <details class="imp"><summary>Incolla più domande insieme</summary><div class="stack" style="margin-top:12px">
-      <p class="small muted">Una domanda per blocco, righe vuote tra i blocchi. Le risposte iniziano con A. B. C. … e l'ultima riga indica quella corretta.</p>
+      <p class="small muted">Una domanda per blocco, righe vuote tra i blocchi. Le risposte iniziano con A. B. C. … e l'ultima riga indica quella corretta. Una riga <b>SEZIONE: Nome</b> assegna la sezione alle domande che seguono.</p>
       <pre class="ex">Entro quanti giorni si può sospendere un abbonamento?
 A. 7 giorni
 B. 14 giorni
@@ -199,7 +221,7 @@ function openEditor(id) {
   if (id) {
     const q = S.quizzes.find(x => x.id === id);
     S.draft = { id, title: q.title, desc: q.desc || '', duration: q.duration, passPct: q.passPct, shuffleQ: !!q.shuffleQ, shuffleO: !!q.shuffleO, active: !!q.active,
-      questions: q.questions.map(x => ({ text: x.text, options: x.options.slice(), correct: x.correct })) };
+      questions: q.questions.map(x => ({ text: x.text, options: x.options.slice(), correct: x.correct, section: x.section || '' })) };
   } else S.draft = { id: null, title: '', desc: '', duration: 15, passPct: 70, shuffleQ: true, shuffleO: true, active: false, questions: [blankQ()] };
   S.draftErr = null; S.view = 'edit'; render(); window.scrollTo(0, 0);
 }
@@ -219,12 +241,13 @@ function rowsToQuestions(rows) {
   if (!rows.length) return { questions: [], errors: ['Il file è vuoto.'] };
   const head = rows[0].map(h => h.toLowerCase());
   const hasHead = head.some(h => /domand|question|corrett|rispost|opzion|answer/.test(h));
-  let qCol = 0, cCol = -1, oCols = [];
+  let qCol = 0, cCol = -1, sCol = -1, oCols = [];
   if (hasHead) {
     qCol = Math.max(0, head.findIndex(h => /domand|question/.test(h)));
     cCol = head.findIndex(h => /corrett|correct|soluz|giust/.test(h));
-    oCols = head.map((h, i) => i).filter(i => i !== qCol && i !== cCol && /rispost|opzion|answer|^[a-f]$/.test(head[i]));
-    if (!oCols.length) oCols = head.map((h, i) => i).filter(i => i !== qCol && i !== cCol);
+    sCol = head.findIndex(h => /sezion|section|categor|argoment|area/.test(h));
+    oCols = head.map((h, i) => i).filter(i => i !== qCol && i !== cCol && i !== sCol && /rispost|opzion|answer|^[a-f]$/.test(head[i]));
+    if (!oCols.length) oCols = head.map((h, i) => i).filter(i => i !== qCol && i !== cCol && i !== sCol && !/^n\.?$|^num|^#$/.test(head[i]));
     rows = rows.slice(1);
   } else {
     const w = Math.max(...rows.map(r => r.length)); cCol = w - 1; oCols = range(w).slice(1, -1);
@@ -241,7 +264,7 @@ function rowsToQuestions(rows) {
     else if (/^[1-6]$/.test(c)) correct = +c - 1;
     else if (c) correct = opts.findIndex(o => o.toLowerCase() === c.toLowerCase());
     if (!(correct >= 0 && correct < opts.length)) { errors.push(`Riga ${line}: risposta corretta mancante o non valida ("${c}").`); correct = null; }
-    questions.push({ text, options: opts, correct });
+    questions.push({ text, options: opts, correct, section: sCol >= 0 ? r[sCol] : '' });
   });
   return { questions, errors };
 }
@@ -286,10 +309,12 @@ function parseCsv(txt, sep) {
   return rows;
 }
 function parseImport(txt) {
-  const out = [];
+  const out = []; let section = '';
   for (const b of txt.replace(/\r/g, '').split(/\n\s*\n/)) {
-    const lines = b.split('\n').map(s => s.trim()).filter(Boolean); if (!lines.length) continue;
-    const q = { text: '', options: [], correct: null }; const qt = [];
+    let lines = b.split('\n').map(s => s.trim()).filter(Boolean);
+    while (lines.length && /^SEZIONE\s*[:\-]/i.test(lines[0])) { section = lines[0].replace(/^SEZIONE\s*[:\-]\s*/i, ''); lines = lines.slice(1); }
+    if (!lines.length) continue;
+    const q = { text: '', options: [], correct: null, section }; const qt = [];
     for (const ln of lines) {
       let m;
       if ((m = ln.match(/^(?:ANSWER|RISPOSTA|CORRETTA)\s*[:=]\s*([A-Z])/i))) q.correct = m[1].toUpperCase().charCodeAt(0) - 65;
@@ -310,7 +335,7 @@ async function saveDraft() {
     if (!q.text.trim()) { S.draftErr = `La domanda ${i + 1} non ha testo.`; break; }
     if (opts.length < 2) { S.draftErr = `La domanda ${i + 1} ha bisogno di almeno 2 risposte.`; break; }
     if (c < 0) { S.draftErr = `Indica la risposta corretta della domanda ${i + 1}.`; break; }
-    questions.push({ text: q.text.trim(), options: opts.map(o => o.t), correct: c });
+    questions.push({ text: q.text.trim(), options: opts.map(o => o.t), correct: c, section: (q.section || '').trim() });
   }
   if (!S.draftErr && !d.title.trim()) S.draftErr = 'Dai un titolo al quiz.';
   if (!S.draftErr && !questions.length) S.draftErr = 'Aggiungi almeno una domanda.';
@@ -328,7 +353,7 @@ async function saveDraft() {
 function notifyToast(n) {
   if (!n) return;
   if (!n.configured) { toast('Quiz attivato. Email non configurate: avvisa i lavoratori a mano.'); return; }
-  toast(n.failed && n.failed.length ? `Avviso inviato a ${n.sent}, non riuscito per ${n.failed.length}` : `Avviso inviato a ${n.sent} lavoratori`);
+  toast(n.failed && n.failed.length ? `Avviso inviato a ${n.sent}, non riuscito per ${n.failed.length}` : `Avviso inviato a ${n.sent} ${n.sent === 1 ? 'lavoratore' : 'lavoratori'}`);
 }
 
 /* ----- responsabile: risultati ----- */
@@ -345,6 +370,15 @@ function resultsView() {
     <div class="stats"><div class="stat"><b>${done.length}</b><span>Consegnati</span></div><div class="stat"><b>${passed.length}</b><span>Superati</span></div>
     <div class="stat"><b>${done.length - passed.length}</b><span>Non superati</span></div><div class="stat"><b>${avg}%</b><span>Punteggio medio</span></div></div>`;
   if (!rows.length) return h + `<div class="empty"><h3>Nessun risultato ancora</h3><p>Quando un lavoratore consegna un quiz, qui trovi punteggio, tempo impiegato ed esito.</p></div></div>`;
+  const fq = S.resFilter !== 'all' && S.quizzes.find(q => q.id === S.resFilter);
+  if (fq && secNames(fq).length && done.length) {
+    const agg = secNames(fq).map(name => { const per = done.map(r => secScores(fq, r.a.answers).find(x => x.name === name));
+      const tot = per.reduce((s, x) => s + x.total, 0), sc = per.reduce((s, x) => s + x.score, 0);
+      return { name, pct: pctOf(sc, tot), label: `media ${(sc / done.length).toFixed(1).replace('.', ',')}/${per[0].total}` }; });
+    h += `<div class="card stack"><div><h3>Media per sezione</h3><p class="small muted">Su ${done.length} ${done.length === 1 ? 'quiz consegnato' : 'quiz consegnati'}: le sezioni più basse sono le priorità del piano formativo.</p></div>${secBars(agg, { legend: true })}</div>`;
+  } else if (S.resFilter === 'all' && S.quizzes.some(q => secNames(q).length)) {
+    h += '<p class="small muted">Scegli un quiz dal filtro per vedere la media per sezione.</p>';
+  }
   h += `<div class="tbl-wrap"><table><thead><tr><th>Email</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const k = r.a.key, open = S.openDetail === k;
@@ -356,9 +390,11 @@ function resultsView() {
       ${S.askReset === k ? `<button class="btn sm danger solid" data-act="resetok" data-k="${esc(k)}">Conferma</button><button class="btn sm" data-act="resetno">No</button>` :
       `<button class="btn sm ghost" data-act="resetask" data-k="${esc(k)}" title="Cancella questo tentativo e permetti di rifarlo">Nuovo tentativo</button>`}</div></td></tr>`;
     if (open && r.quiz) {
-      h += `<tr><td colspan="8" class="detail"><div class="ans">${r.quiz.questions.map((q, i) => {
+      const ss = secScores(r.quiz, r.a.answers);
+      h += `<tr><td colspan="8" class="detail">${ss.length ? `<h3 style="margin:4px 0 10px">Punteggio per sezione</h3>${secBars(ss)}<h3 style="margin:18px 0 6px">Risposte</h3>` : ''}<div class="ans">${r.quiz.questions.map((q, i) => {
         const g = (r.a.answers || {})[i]; const ok = g !== undefined && g === q.correct;
-        return `<div><span class="k ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span><span><b>${i + 1}. ${esc(q.text)}</b><br>
+        const head = q.section && q.section !== (r.quiz.questions[i - 1] || {}).section ? `<p class="sechead" style="margin:10px 0 0">${esc(q.section)}</p>` : '';
+        return `${head}<div><span class="k ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span><span><b>${i + 1}. ${esc(q.text)}</b><br>
           <span class="muted">Risposta data:</span> ${g === undefined ? '<i>nessuna</i>' : esc(q.options[g])}
           ${ok ? '' : ` · <span class="muted">Corretta:</span> ${esc(q.options[q.correct])}`}</span></div>`;
       }).join('')}</div></td></tr>`;
@@ -369,9 +405,15 @@ function resultsView() {
 function exportCsv() {
   let rows = attemptRows(); if (S.resFilter !== 'all') rows = rows.filter(r => r.a.quizId === S.resFilter);
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const lines = [['Email', 'Quiz', 'Inizio', 'Fine', 'Durata', 'Corrette', 'Totale', 'Percentuale', 'Esito', 'Uscite dalla pagina', 'Tempo scaduto'].map(q).join(';')];
-  for (const r of rows) lines.push([r.a.email, r.quiz ? r.quiz.title : 'Quiz eliminato', fmtD(r.a.startedAt), fmtD(r.a.finishedAt), r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '',
-    r.done ? r.score : '', r.n, r.done ? r.pct + '%' : '', !r.done ? 'In corso' : r.pass ? 'Superato' : 'Non superato', r.a.leaves || 0, r.a.auto ? 'Sì' : 'No'].map(q).join(';'));
+  const secs = [...new Set(rows.flatMap(r => r.quiz ? secNames(r.quiz) : []))];
+  const lines = [['Email', 'Quiz', 'Inizio', 'Fine', 'Durata', 'Corrette', 'Totale', 'Percentuale', 'Esito', 'Uscite dalla pagina', 'Tempo scaduto',
+    ...secs.flatMap(n => [n + ' - corrette', n + ' - totale', n + ' - %'])].map(q).join(';')];
+  for (const r of rows) {
+    const ss = r.quiz && r.done ? secScores(r.quiz, r.a.answers) : [];
+    lines.push([r.a.email, r.quiz ? r.quiz.title : 'Quiz eliminato', fmtD(r.a.startedAt), fmtD(r.a.finishedAt), r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '',
+      r.done ? r.score : '', r.n, r.done ? r.pct + '%' : '', !r.done ? 'In corso' : r.pass ? 'Superato' : 'Non superato', r.a.leaves || 0, r.a.auto ? 'Sì' : 'No',
+      ...secs.flatMap(n => { const x = ss.find(y => y.name === n); return x ? [x.score, x.total, pctOf(x.score, x.total) + '%'] : ['', '', '']; })].map(q).join(';'));
+  }
   const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = 'risultati-quiz.csv'; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
@@ -380,7 +422,7 @@ function exportCsv() {
 /* ----- responsabile: accessi ----- */
 function accessView() {
   const list = S.people.slice().sort((a, b) => a.email.localeCompare(b.email));
-  let h = `<div class="stack"><div><h2>Accessi</h2><p class="muted small">Solo le persone in questo elenco possono entrare. Ognuna accede con la sua email e il codice personale generato qui.</p></div>
+  let h = `<div class="stack"><div><h2>Accessi</h2><p class="muted small">Solo le persone in questo elenco possono entrare. Ognuna accede con la sua email e il codice personale generato qui${S.mailOk ? ', che riceve subito per email' : ''}.</p></div>
   <div class="card stack"><label class="f">Aggiungi email <span class="hint">anche più di una, separate da virgola o a capo</span>
     <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it"></textarea></label>
     ${S.accErr ? `<div class="err">${esc(S.accErr)}</div>` : ''}
@@ -390,7 +432,9 @@ function accessView() {
   for (const p of list) {
     const msg = `Link: ${location.origin}\nEmail: ${p.email}\nCodice di accesso: ${p.code}`;
     h += `<tr><td>${esc(p.email)}</td><td class="num"><b>${esc(p.code)}</b> <button class="btn sm ghost" data-act="copy" data-t="${esc(msg)}">Copia</button>
-      <button class="btn sm ghost" data-act="regen" data-e="${esc(p.email)}" title="Genera un nuovo codice: quello vecchio smette di funzionare">Nuovo codice</button></td>
+      <button class="btn sm ghost" data-act="regen" data-e="${esc(p.email)}" title="Genera un nuovo codice: quello vecchio smette di funzionare">Nuovo codice</button>
+      ${S.mailOk ? `<button class="btn sm ghost" data-act="accmail" data-e="${esc(p.email)}">${p.mailedAt ? 'Reinvia email' : 'Invia email'}</button>` : ''}
+      <div class="small muted" style="font-family:var(--f-body)">${p.mailedAt ? 'Email inviata il ' + fmtD(p.mailedAt) : S.mailOk ? 'Email non ancora inviata' : ''}</div></td>
       <td style="text-align:right">${S.askRm === p.email ? `<span class="small muted">Togliere l'accesso?</span> <button class="btn sm danger solid" data-act="accrmok" data-e="${esc(p.email)}">Rimuovi</button> <button class="btn sm" data-act="accrmno">Annulla</button>`
       : `<button class="btn sm ghost danger" data-act="accrm" data-e="${esc(p.email)}">Rimuovi</button>`}</td></tr>`;
   }
@@ -399,9 +443,20 @@ function accessView() {
 async function addAccess() {
   const emails = document.getElementById('accin').value.split(/[\s,;]+/).filter(Boolean);
   S.saving = true; S.accErr = null; render();
-  try { const r = await api('admin/people', { method: 'POST', body: { emails } }); S.people = r.people; toast(r.added ? (r.added === 1 ? 'Email autorizzata' : r.added + ' email autorizzate') : 'Email già autorizzate'); }
+  try {
+    const r = await api('admin/people', { method: 'POST', body: { emails } }); S.people = r.people;
+    if (!r.added) toast('Email già autorizzate');
+    else if (!r.mail.configured) toast((r.added === 1 ? 'Accesso creato' : r.added + ' accessi creati') + '. Email non configurate: manda i codici con "Copia".');
+    else toast(mailMsg(r.mail, r.added === 1 ? 'Accesso creato e inviato' : `${r.added} accessi creati`));
+    document.getElementById('accin') && (document.getElementById('accin').value = '');
+  }
   catch (e) { if (e.message !== '401') S.accErr = e.message; }
   S.saving = false; render();
+}
+
+function mailMsg(m, prefix) {
+  if (m.failed && m.failed.length) return `${prefix}: email inviata a ${m.sent}, non riuscita per ${m.failed.join(', ')}`;
+  return `${prefix}: email inviata${m.sent > 1 ? ` a ${m.sent}` : ''}`;
 }
 
 /* ----- lavoratore ----- */
@@ -441,7 +496,7 @@ function runView() {
   return `<div class="runbar"><div style="min-width:0"><b>${esc(r.title)}</b><div class="small muted mono">( ${pad2(r.pos + 1)} / ${pad2(r.total)} )${S.preview ? ' · anteprima' : ''}</div></div>
     <span class="spacer"></span><div class="timer" id="timer" role="timer" aria-label="Tempo rimanente">${fmtT(r.deadlineLocal - Date.now())}</div>
     <div class="progress"><i style="width:${r.pos / r.total * 100}%"></i></div></div>
-  <div class="stack" style="margin-top:24px"><p class="question">${esc(q.text)}</p>
+  <div class="stack" style="margin-top:24px">${q.section ? `<p class="sechead" style="margin:0">Sezione · ${esc(q.section)}</p>` : ''}<p class="question">${esc(q.text)}</p>
     <div class="choices" role="radiogroup">${q.options.map((o, k) => `<button class="choice" role="radio" data-act="pick" data-o="${o.i}" aria-checked="${r.pick === o.i}"><span class="l">${L(k)}</span><span>${esc(o.text)}</span></button>`).join('')}</div>
     <div class="row"><span class="small muted">La risposta confermata non si può modificare.</span><span class="spacer"></span>
     <button class="btn primary" data-act="confirm" ${r.pick == null || S.saving ? 'disabled' : ''}>${S.saving ? 'Invio…' : last ? 'Conferma e consegna' : 'Conferma e vai avanti →'}</button></div></div>`;
@@ -451,6 +506,7 @@ function doneView() {
   let h = `<div class="card stack" style="text-align:center;align-items:center;padding:36px 20px;margin-top:8px"><span class="chip ok">Quiz consegnato</span>
     <h2>${esc(r.title || '')}</h2>${r.auto ? '<p class="muted">Il tempo è scaduto: il quiz è stato consegnato con le risposte date fino a quel momento.</p>' : ''}`;
   if (r.n) h += `<div class="big">${r.score}/${r.n}</div><p class="muted">${r.score === 1 ? 'risposta corretta' : 'risposte corrette'}</p>`;
+  if (r.sections && r.sections.length) h += `<div style="width:100%;max-width:560px;text-align:left;margin-top:6px">${secBars(r.sections)}</div>`;
   if (S.preview && r.n) h += `<p class="muted">Anteprima: ${r.pct}% · ${r.pass ? 'superato' : 'non superato'} (soglia ${r.passPct}%). Nessun dato è stato salvato.</p>`;
   else if (!S.preview) h += `<p class="muted">Grazie, il risultato è stato registrato.</p>`;
   return h + `<button class="btn" data-act="home">Torna ai quiz</button></div>`;
@@ -460,7 +516,7 @@ function doneView() {
 function applyState(st) {
   if (st.status === 'consegnato') {
     clearInterval(timerH);
-    S.lastResult = st.preview ? { title: st.title, auto: st.auto, ...st.preview } : { title: st.title, auto: st.auto, score: st.score, n: st.total };
+    S.lastResult = st.preview ? { title: st.title, auto: st.auto, ...st.preview } : { title: st.title, auto: st.auto, score: st.score, n: st.total, sections: st.sections || [] };
     S.run = null; S.view = 'done'; render(); refreshQuietly(); return;
   }
   const same = S.run && S.run.pos === st.pos && S.run.quizId === st.quizId;
@@ -511,20 +567,21 @@ const Preview = {
     const n = quiz.questions.length;
     this.q = quiz;
     this.a = { pos: 0, answers: {}, deadline: Date.now() + quiz.duration * 60000,
-      order: quiz.shuffleQ ? shuffle(range(n)) : range(n),
+      order: (() => { const names = secNames(quiz); if (!names.length) return quiz.shuffleQ ? shuffle(range(n)) : range(n);
+        return [...names, ''].flatMap(nm => { const g = range(n).filter(i => (quiz.questions[i].section || '') === nm); return quiz.shuffleQ ? shuffle(g) : g; }); })(),
       optOrder: quiz.questions.map(x => quiz.shuffleO ? shuffle(range(x.options.length)) : range(x.options.length)) };
     return this.state();
   },
   state() {
     const { q, a } = this, qi = a.order[a.pos], x = q.questions[qi];
     return { status: 'in_corso', quizId: q.id, title: q.title, pos: a.pos, total: q.questions.length, remainingMs: a.deadline - Date.now(),
-      question: { text: x.text, options: a.optOrder[qi].map(i => ({ i, text: x.options[i] })) } };
+      question: { text: x.text, section: x.section || '', options: a.optOrder[qi].map(i => ({ i, text: x.options[i] })) } };
   },
   answer(choice) { this.a.answers[this.a.order[this.a.pos]] = choice; this.a.pos++; return this.a.pos >= this.q.questions.length ? this.finish(false) : this.state(); },
   finish(auto) {
     const { q, a } = this, n = q.questions.length;
     const score = q.questions.reduce((s, x, i) => s + (a.answers[i] === x.correct ? 1 : 0), 0), pct = Math.round(score / n * 100);
-    return { status: 'consegnato', title: q.title, auto, preview: { score, n, pct, pass: pct >= q.passPct, passPct: q.passPct } };
+    return { status: 'consegnato', title: q.title, auto, preview: { score, n, pct, pass: pct >= q.passPct, passPct: q.passPct, sections: secScores(q, a.answers) } };
   },
 };
 
@@ -543,7 +600,7 @@ app.addEventListener('click', async e => {
       case 'edit': openEditor(b.dataset.id); break;
       case 'cancel': S.draft = null; S.view = 'home'; render(); break;
       case 'save': saveDraft(); break;
-      case 'qadd': d.questions.push(blankQ()); render(); break;
+      case 'qadd': d.questions.push(blankQ((d.questions[d.questions.length - 1] || {}).section || '')); render(); break;
       case 'qdel': d.questions.splice(qi, 1); render(); break;
       case 'oadd': d.questions[qi].options.push(''); render(); break;
       case 'odel': { const q = d.questions[qi]; q.options.splice(oi, 1); if (q.correct === oi) q.correct = null; else if (q.correct > oi) q.correct--; render(); break; }
@@ -572,7 +629,10 @@ app.addEventListener('click', async e => {
       case 'accrm': S.askRm = b.dataset.e; render(); break;
       case 'accrmno': S.askRm = null; render(); break;
       case 'accrmok': S.askRm = null; S.people = (await api('admin/people?email=' + encodeURIComponent(b.dataset.e), { method: 'DELETE' })).people; toast('Accesso rimosso'); render(); break;
-      case 'regen': S.people = (await api('admin/people', { method: 'PATCH', body: { email: b.dataset.e } })).people; toast('Nuovo codice generato'); render(); break;
+      case 'regen': { const r = await api('admin/people', { method: 'PATCH', body: { email: b.dataset.e } }); S.people = r.people;
+        toast(r.mail.configured ? mailMsg(r.mail, 'Nuovo codice generato') : 'Nuovo codice generato'); render(); break; }
+      case 'accmail': { b.disabled = true; b.textContent = 'Invio…'; const r = await api('admin/people/send', { method: 'POST', body: { email: b.dataset.e } }); S.people = r.people;
+        toast(mailMsg(r.mail, 'Accesso')); render(); break; }
       case 'copy': navigator.clipboard.writeText(b.dataset.t).then(() => toast('Copiato'), () => toast('Copia non riuscita: seleziona il testo a mano')); break;
       case 'preview': S.preview = true; S.sel = b.dataset.id; S.view = 'intro'; render(); window.scrollTo(0, 0); break;
       case 'intro': S.preview = false; S.sel = b.dataset.id; S.view = 'intro'; render(); window.scrollTo(0, 0); break;
@@ -590,6 +650,7 @@ app.addEventListener('input', e => {
   const d = S.draft; if (!d) return;
   const qi = +t.dataset.q, oi = +t.dataset.o;
   if (f === 'qtext') d.questions[qi].text = t.value;
+  else if (f === 'qsec') d.questions[qi].section = t.value;
   else if (f === 'opt') d.questions[qi].options[oi] = t.value;
   else if (f === 'correct') d.questions[qi].correct = oi;
   else if (t.type === 'checkbox') d[f] = t.checked;

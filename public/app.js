@@ -77,18 +77,18 @@ function header() {
     <button class="tab" data-act="tab" data-v="results" aria-current="${S.tab === 'results'}">Risultati</button>
     <button class="tab" data-act="tab" data-v="access" aria-current="${S.tab === 'access'}">Accessi</button></nav>` : '';
   const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout"${tabs ? '' : ' style="margin-left:auto"'}>Esci</button>` : '';
-  const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : 'Verifiche a tempo';
+  const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : '';
   return `<header class="top"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
-    <h1 class="sub">Quiz dipendenti<br>${sub}</h1></div>${tabs}${out}</div></header>`;
+    <h1 class="sub">PORTALE QUIZ<br>${sub}</h1></div>${tabs}${out}</div></header>`;
 }
 
 /* ----- accesso ----- */
 function loginView() {
   const emp = S.loginRole === 'employee';
   return `<form class="card stack login" id="loginForm" novalidate>
-    <div><h2>Accedi</h2><p class="muted small">${emp ? "Usa l'email aziendale e il codice di accesso che ti ha dato il responsabile." : 'Area riservata al responsabile.'}</p></div>
+    <div><h2>Accedi</h2><p class="muted small">${emp ? "Usa l'email aziendale e il tuo codice di accesso." : 'Area riservata ai responsabili.'}</p></div>
     <div class="seg" role="group" aria-label="Tipo di accesso">
-      <button type="button" data-act="lrole" data-v="employee" aria-pressed="${emp}">Dipendente</button>
+      <button type="button" data-act="lrole" data-v="employee" aria-pressed="${emp}">Accesso</button>
       <button type="button" data-act="lrole" data-v="admin" aria-pressed="${!emp}">Responsabile</button></div>
     ${emp ? `<label class="f">Email<input type="text" id="lg-e" inputmode="email" autocomplete="email" placeholder="nome.cognome@gsloft.it"></label>
     <label class="f">Codice di accesso<input type="text" id="lg-c" autocomplete="one-time-code" class="mono" style="text-transform:uppercase;letter-spacing:.12em" placeholder="Es. K7PM3Q"></label>`
@@ -141,7 +141,7 @@ function adminHome() {
        <button class="btn sm" data-act="seeres" data-id="${q.id}">Risultati</button>
        <button class="btn sm ghost danger" data-act="delask" data-id="${q.id}">Elimina</button>`}</div></div>`;
   }
-  return h + `</div><p class="small muted">Per far svolgere un quiz: attivalo, autorizza le email nella scheda <b>Accessi</b> e manda a ogni dipendente il link del sito con la sua email e il suo codice.</p></div>`;
+  return h + `</div><p class="small muted">Per far svolgere un quiz: attivalo, autorizza le email nella scheda <b>Accessi</b> e manda a ogni lavoratore il link del sito con la sua email e il suo codice.</p></div>`;
 }
 const blankQ = () => ({ text: '', options: ['', '', '', ''], correct: null });
 function editView() {
@@ -250,8 +250,8 @@ function resultsView() {
     ${rows.length ? '<button class="btn" data-act="csv">Esporta CSV</button>' : ''}</div>
     <div class="stats"><div class="stat"><b>${done.length}</b><span>Consegnati</span></div><div class="stat"><b>${passed.length}</b><span>Superati</span></div>
     <div class="stat"><b>${done.length - passed.length}</b><span>Non superati</span></div><div class="stat"><b>${avg}%</b><span>Punteggio medio</span></div></div>`;
-  if (!rows.length) return h + `<div class="empty"><h3>Nessun risultato ancora</h3><p>Quando un dipendente consegna un quiz, qui trovi punteggio, tempo impiegato ed esito.</p></div></div>`;
-  h += `<div class="tbl-wrap"><table><thead><tr><th>Dipendente</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
+  if (!rows.length) return h + `<div class="empty"><h3>Nessun risultato ancora</h3><p>Quando un lavoratore consegna un quiz, qui trovi punteggio, tempo impiegato ed esito.</p></div></div>`;
+  h += `<div class="tbl-wrap"><table><thead><tr><th>lavoratore</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const k = r.a.key, open = S.openDetail === k;
     const esito = !r.done ? '<span class="chip warn">In corso</span>' : r.pass ? '<span class="chip ok">Superato</span>' : '<span class="chip bad">Non superato</span>';
@@ -270,12 +270,12 @@ function resultsView() {
       }).join('')}</div></td></tr>`;
     }
   }
-  return h + `</tbody></table></div><p class="small muted">"Uscite" conta quante volte il dipendente ha lasciato la pagina durante il quiz (cambio scheda o app).</p></div>`;
+  return h + `</tbody></table></div><p class="small muted">"Uscite" conta quante volte il lavoratore ha lasciato la pagina durante il quiz (cambio scheda o app).</p></div>`;
 }
 function exportCsv() {
   let rows = attemptRows(); if (S.resFilter !== 'all') rows = rows.filter(r => r.a.quizId === S.resFilter);
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const lines = [['Dipendente', 'Email', 'Quiz', 'Inizio', 'Fine', 'Durata', 'Corrette', 'Totale', 'Percentuale', 'Esito', 'Uscite dalla pagina', 'Tempo scaduto'].map(q).join(';')];
+  const lines = [['lavoratore', 'Email', 'Quiz', 'Inizio', 'Fine', 'Durata', 'Corrette', 'Totale', 'Percentuale', 'Esito', 'Uscite dalla pagina', 'Tempo scaduto'].map(q).join(';')];
   for (const r of rows) lines.push([r.name, r.a.email, r.quiz ? r.quiz.title : 'Quiz eliminato', fmtD(r.a.startedAt), fmtD(r.a.finishedAt), r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '',
     r.done ? r.score : '', r.n, r.done ? r.pct + '%' : '', !r.done ? 'In corso' : r.pass ? 'Superato' : 'Non superato', r.a.leaves || 0, r.a.auto ? 'Sì' : 'No'].map(q).join(';'));
   const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
@@ -291,7 +291,7 @@ function accessView() {
     <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it"></textarea></label>
     ${S.accErr ? `<div class="err">${esc(S.accErr)}</div>` : ''}
     <div class="row"><span class="spacer"></span><button class="btn primary" data-act="accadd" ${S.saving ? 'disabled' : ''}>Autorizza e genera codici</button></div></div>`;
-  if (!list.length) return h + `<div class="empty"><h3>Nessuna email autorizzata</h3><p>Finché l'elenco è vuoto nessun dipendente può entrare.</p></div></div>`;
+  if (!list.length) return h + `<div class="empty"><h3>Nessuna email autorizzata</h3><p>Finché l'elenco è vuoto nessun lavoratore può entrare.</p></div></div>`;
   h += `<div class="tbl-wrap"><table><thead><tr><th>Email autorizzate · ${list.length}</th><th>Codice</th><th></th></tr></thead><tbody>`;
   for (const p of list) {
     const msg = `Link: ${location.origin}\nEmail: ${p.email}\nCodice di accesso: ${p.code}`;
@@ -300,7 +300,7 @@ function accessView() {
       <td style="text-align:right">${S.askRm === p.email ? `<span class="small muted">Togliere l'accesso?</span> <button class="btn sm danger solid" data-act="accrmok" data-e="${esc(p.email)}">Rimuovi</button> <button class="btn sm" data-act="accrmno">Annulla</button>`
       : `<button class="btn sm ghost danger" data-act="accrm" data-e="${esc(p.email)}">Rimuovi</button>`}</td></tr>`;
   }
-  return h + `</tbody></table></div><p class="small muted">"Copia" prepara il messaggio con link, email e codice da mandare al dipendente.</p></div>`;
+  return h + `</tbody></table></div><p class="small muted">"Copia" prepara il messaggio con link, email e codice da mandare al lavoratore.</p></div>`;
 }
 async function addAccess() {
   const emails = document.getElementById('accin').value.split(/[\s,;]+/).filter(Boolean);
@@ -310,7 +310,7 @@ async function addAccess() {
   S.saving = false; render();
 }
 
-/* ----- dipendente ----- */
+/* ----- lavoratore ----- */
 function employeeHome() {
   let h = `<div class="stack"><div class="row"><div><h2>I tuoi quiz</h2><p class="muted small">Ogni quiz si può svolgere una sola volta.</p></div><span class="spacer"></span><button class="btn" data-act="reload">Aggiorna</button></div>`;
   if (!S.quizzes.length) return h + `<div class="empty"><h3>Nessun quiz da svolgere</h3><p>Quando il responsabile attiva un quiz, lo trovi qui.</p></div></div>`;
@@ -363,7 +363,7 @@ function doneView() {
   return h + `<button class="btn" data-act="home">Torna ai quiz</button></div>`;
 }
 
-/* ---------- svolgimento: server (dipendente) o locale (anteprima) ---------- */
+/* ---------- svolgimento: server (lavoratore) o locale (anteprima) ---------- */
 function applyState(st) {
   if (st.status === 'consegnato') {
     clearInterval(timerH);
@@ -471,7 +471,7 @@ app.addEventListener('click', async e => {
       case 'detail': S.openDetail = S.openDetail === b.dataset.k ? null : b.dataset.k; render(); break;
       case 'resetask': S.askReset = b.dataset.k; render(); break;
       case 'resetno': S.askReset = null; render(); break;
-      case 'resetok': S.askReset = null; await api('admin/attempt?key=' + encodeURIComponent(b.dataset.k), { method: 'DELETE' }); toast('Tentativo cancellato: il dipendente può rifare il quiz'); await refresh(); break;
+      case 'resetok': S.askReset = null; await api('admin/attempt?key=' + encodeURIComponent(b.dataset.k), { method: 'DELETE' }); toast('Tentativo cancellato: il lavoratore può rifare il quiz'); await refresh(); break;
       case 'csv': exportCsv(); break;
       case 'accadd': addAccess(); break;
       case 'accrm': S.askRm = b.dataset.e; render(); break;

@@ -146,7 +146,7 @@ function adminHome() {
     <button class="btn" data-act="template" data-v="xlsx" title="Il file da compilare con domande, risposte e sezioni">Scarica modello di import</button>
     <button class="btn" data-act="importfile" data-v="new">Importa da Excel/CSV</button>
     <button class="btn primary" data-act="new">+ Nuovo quiz</button></div>
-    ${S.mailOk === false ? '<div class="note">L\'invio delle email non è configurato: i lavoratori non ricevono l\'avviso dei nuovi quiz. Vedi il README per impostarlo su Netlify.</div>' : ''}`;
+`;
   if (!S.quizzes.length) return h + `<div class="empty"><h3>Nessun quiz ancora</h3><p>Crea il primo quiz: scrivi le domande o incollale in blocco, imposta durata e soglia di superamento, poi attivalo.</p><p style="margin-top:14px"><button class="btn primary" data-act="new">Crea il primo quiz</button></p></div></div>`;
   h += '<div class="qlist">';
   for (const q of S.quizzes) {
@@ -373,7 +373,7 @@ async function saveDraft() {
 
 function notifyToast(n) {
   if (!n) return;
-  if (!n.configured) { toast('Quiz attivato. Email non configurate: avvisa i lavoratori a mano.'); return; }
+  if (!n.configured) { toast('Quiz attivato'); return; }
   toast(n.failed && n.failed.length ? `Avviso inviato a ${n.sent}, non riuscito per ${n.failed.length}` : `Avviso inviato a ${n.sent} ${n.sent === 1 ? 'lavoratore' : 'lavoratori'}`);
 }
 
@@ -530,7 +530,7 @@ async function addAccess() {
   try {
     const r = await api('admin/people', { method: 'POST', body: { emails } }); S.people = r.people;
     if (!r.added) toast('Email già autorizzate');
-    else if (!r.mail.configured) toast((r.added === 1 ? 'Accesso creato' : r.added + ' accessi creati') + '. Email non configurate: manda i codici con "Copia".');
+    else if (!r.mail.configured) toast(r.added === 1 ? 'Accesso creato' : r.added + ' accessi creati');
     else toast(mailMsg(r.mail, r.added === 1 ? 'Accesso creato e inviato' : `${r.added} accessi creati`));
     document.getElementById('accin') && (document.getElementById('accin').value = '');
   }

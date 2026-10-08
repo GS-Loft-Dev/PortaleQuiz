@@ -417,7 +417,7 @@ export default async (req) => {
       const q = await getQuiz(body.id);
       if (!q) return fail("Quiz non trovato.", 404);
       if (!q.active) return fail("Attiva il quiz prima di inviare l'avviso.");
-      if (!mailConfigured()) return fail("Invio email non configurato: imposta MAIL_FROM e RESEND_API_KEY (oppure SMTP_*) su Netlify.");
+      if (!mailConfigured()) return fail("Invio email non disponibile.");
       return json({ notify: await notifyQuiz(q, true) });
     }
     if (route === "admin/template" && method === "GET") {
@@ -433,7 +433,7 @@ export default async (req) => {
     if (route === "admin/mailstatus" && method === "GET") return json({ configured: mailConfigured() });
 
     if (route === "admin/people/send" && method === "POST") {
-      if (!mailConfigured()) return fail("Invio email non configurato: imposta MAIL_FROM e RESEND_API_KEY (oppure SMTP_*) su Netlify.");
+      if (!mailConfigured()) return fail("Invio email non disponibile.");
       const email = normEmail(body.email);
       const p = (await getPeople()).find((x) => x.email === email);
       if (!p) return fail("Email non trovata negli accessi.", 404);

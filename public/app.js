@@ -21,6 +21,15 @@ const pad2 = n => String(n).padStart(2, '0');
 const fmtT = ms => { ms = Math.max(0, ms); const s = Math.ceil(ms / 1000); return pad2(Math.floor(s / 60)) + ':' + pad2(s % 60); };
 const fmtD = ts => ts ? new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtDur = ms => { if (!(ms >= 0)) return '—'; const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000); return m + 'm ' + pad2(s) + 's'; };
+/* icone (tratto, colore dal testo) */
+const ICON = {
+  clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
+};
+const ic = (n) => `<span class="ic">${ICON[n]}</span>`;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2800); }
 
 async function api(path, { method = 'GET', body, keepalive } = {}) {
@@ -95,7 +104,18 @@ function header() {
 /* ----- accesso ----- */
 function loginView() {
   const emp = S.loginRole === 'employee';
-  return `<form class="card stack login" id="loginForm" novalidate>
+  return `<div class="login-wrap">
+  <div class="login-hero" aria-hidden="true">
+    <p class="eyebrow">GS LOFT · Formazione</p>
+    <p class="hero-t">Quiz &amp; survey<br><span>per il team</span></p>
+    <p class="hero-s">Verifiche a tempo, una domanda alla volta, e survey interne. Tutto in un unico posto.</p>
+    <div class="stack3d">
+      <div class="fc fc3"><span class="fc-k">Survey</span><span class="fc-l"></span><span class="fc-l s"></span></div>
+      <div class="fc fc2"><span class="fc-k">Quiz</span><span class="fc-l"></span><span class="fc-l s"></span><span class="fc-l xs"></span></div>
+      <div class="fc fc1"><span class="fc-k">Domanda 01 / 115</span><span class="fc-q"></span><span class="fc-o on"><i>A</i></span><span class="fc-o"><i>B</i></span><span class="fc-o"><i>C</i></span></div>
+    </div>
+  </div>
+  <form class="card stack login tilt" id="loginForm" novalidate>
     <div><h2>Accedi</h2><p class="muted small">${emp ? "Usa l'email aziendale e il tuo codice di accesso." : 'Area riservata ai responsabili.'}</p></div>
     <div class="seg" role="group" aria-label="Tipo di accesso">
       <button type="button" data-act="lrole" data-v="employee" aria-pressed="${emp}">Accesso</button>
@@ -104,7 +124,7 @@ function loginView() {
     <label class="f">Codice di accesso<input type="text" id="lg-c" autocomplete="one-time-code" class="mono" style="text-transform:uppercase;letter-spacing:.12em" placeholder="Es. K7PM3Q"></label>`
     : `<label class="f">Password<input type="password" id="lg-p" autocomplete="current-password"></label>`}
     ${S.loginErr ? `<div class="err">${esc(S.loginErr)}</div>` : ''}
-    <button class="btn primary" type="submit" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Verifica…' : 'Entra'}</button></form>`;
+    <button class="btn primary" type="submit" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Verifica…' : 'Entra'}</button></form></div>`;
 }
 async function doLogin() {
   const emp = S.loginRole === 'employee';
@@ -140,7 +160,7 @@ function adminHome() {
   for (const q of S.quizzes) {
     const done = rows.filter(r => r.a.quizId === q.id && r.done).length;
     const ask = S.askDel === q.id;
-    h += `<div class="card qitem"><div class="stack" style="gap:8px;min-width:0">
+    h += `<div class="card qitem lift${q.active ? ' is-live' : ''}"><div class="stack" style="gap:8px;min-width:0">
       <div class="row"><h3>${esc(q.title)}</h3>${q.active ? '<span class="chip ok">Attivo</span>' : '<span class="chip">Bozza</span>'}</div>
       ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
       <div class="meta"><span>${q.questions.length} domande</span><span>${q.duration} min</span><span>Soglia ${q.passPct}%</span><span>${done} consegnati</span></div></div>
@@ -322,28 +342,34 @@ async function addAccess() {
 
 /* ----- lavoratore ----- */
 function employeeHome() {
-  let h = `<div class="stack"><div class="row"><div><h2>Da completare</h2><p class="muted small">Qui trovi le survey e i quiz attivati dal responsabile.</p></div><span class="spacer"></span><button class="btn" data-act="reload">Aggiorna</button></div>`;
+  const todo = S.quizzes.filter(q => q.status !== 'consegnato').length + S.surveys.filter(s => !s.submittedAt).length;
+  let h = `<div class="stack"><div class="row hello"><div><p class="eyebrow">${todo ? `${todo} ${todo === 1 ? 'attività aperta' : 'attività aperte'}` : 'Tutto completato'}</p><h2>Da completare</h2><p class="muted small">Qui trovi le survey e i quiz attivati dal responsabile.</p></div><span class="spacer"></span><button class="btn" data-act="reload">Aggiorna</button></div>`;
   if (!S.quizzes.length && !S.surveys.length) return h + `<div class="empty"><h3>Niente da completare</h3><p>Quando il responsabile attiva una survey o un quiz, lo trovi qui.</p></div></div>`;
   if (S.surveys.length) {
-    h += '<h3 class="sec-t">Survey</h3><div class="qlist">';
+    h += '<h3 class="sec-t">Survey</h3><div class="tiles">';
     for (const s of S.surveys) {
-      h += `<div class="card qitem"><div class="stack" style="gap:6px;min-width:0"><h3>${esc(s.title)}</h3><p class="muted small">${esc(s.subtitle)}</p>
-        <div class="meta"><span>${esc(s.estimate.replace('Tempo di compilazione: circa', 'Circa').replace(/\.$/, ''))}</span>${s.submittedAt ? `<span>Inviata il ${fmtD(s.submittedAt)}</span>` : ''}</div></div>
-        <div class="actions">${s.submittedAt ? `<span class="chip ok">Inviata</span><button class="btn" data-act="svopen" data-id="${s.id}">Modifica risposte</button>`
-          : `<button class="btn primary" data-act="svopen" data-id="${s.id}">Compila</button>`}</div></div>`;
+      h += `<article class="tile tilt kind-survey${s.submittedAt ? ' is-done' : ''}"><div class="tile-in">
+        <div class="tile-top"><span class="kind">${ic('doc')}Survey</span>${s.submittedAt ? `<span class="chip ok">${ic('check')}Inviata</span>` : '<span class="chip acc">Da compilare</span>'}</div>
+        <h3>${esc(s.title)}</h3><p class="muted small">${esc(s.subtitle)}</p>
+        <div class="meta">${ic('clock')}<span>${esc(s.estimate.replace('Tempo di compilazione: circa', 'Circa').replace(/\.$/, ''))}</span>${s.submittedAt ? `<span>· Inviata il ${fmtD(s.submittedAt)}</span>` : ''}</div>
+        <div class="tile-foot">${s.submittedAt ? `<button class="btn" data-act="svopen" data-id="${s.id}">Modifica risposte</button>`
+          : `<button class="btn primary" data-act="svopen" data-id="${s.id}">Compila ${ic('arrow')}</button>`}</div></div></article>`;
     }
     h += '</div>';
   }
   if (!S.quizzes.length) return h + '</div>';
-  h += `<h3 class="sec-t">Quiz</h3><p class="muted small" style="margin-top:-10px">Ogni quiz si può svolgere una sola volta.</p><div class="qlist">`;
+  h += `<h3 class="sec-t">Quiz</h3><p class="muted small" style="margin-top:-10px">Ogni quiz si può svolgere una sola volta.</p><div class="tiles">`;
   for (const q of S.quizzes) {
-    const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia</button>`
-      : q.status === 'consegnato' ? `<span class="chip ok">Consegnato</span>`
-      : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi</button>`;
-    h += `<div class="card qitem"><div class="stack" style="gap:6px;min-width:0"><h3>${esc(q.title)}</h3>
-      ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
-      <div class="meta"><span>${q.count} domande</span><span>${q.duration} minuti</span>${q.finishedAt ? `<span>Consegnato il ${fmtD(q.finishedAt)}</span>` : ''}</div></div>
-      <div class="actions">${act}</div></div>`;
+    const done = q.status === 'consegnato';
+    const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia ${ic('arrow')}</button>`
+      : done ? `<span class="small muted">Consegnato il ${fmtD(q.finishedAt)}</span>`
+      : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi ${ic('arrow')}</button>`;
+    const chip = done ? `<span class="chip ok">${ic('check')}Consegnato</span>` : q.status === 'da_fare' ? '<span class="chip acc">Da fare</span>' : '<span class="chip warn">In corso</span>';
+    h += `<article class="tile tilt kind-quiz${done ? ' is-done' : ''}"><div class="tile-in">
+      <div class="tile-top"><span class="kind">${ic('list')}Quiz</span>${chip}</div>
+      <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
+      <div class="tile-nums"><div><b>${q.count}</b><span>domande</span></div><div><b>${q.duration}</b><span>minuti</span></div></div>
+      <div class="tile-foot">${act}</div></div></article>`;
   }
   return h + '</div></div>';
 }
@@ -351,8 +377,9 @@ function introView() {
   const q = S.quizzes.find(x => x.id === S.sel); if (!q) return '';
   const n = q.count ?? q.questions.length;
   return `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="home">← Indietro</button>${S.preview ? '<span class="chip acc">Anteprima: nessun dato salvato</span>' : ''}</div>
-  <div class="card stack"><h2>${esc(q.title)}</h2>${q.desc ? `<p>${esc(q.desc)}</p>` : ''}
-    <ol class="rules">
+  <div class="card stack intro-card"><p class="eyebrow">Prima di iniziare</p><h2>${esc(q.title)}</h2>${q.desc ? `<p>${esc(q.desc)}</p>` : ''}
+    <div class="tile-nums"><div><b>${n}</b><span>domande</span></div><div><b>${q.duration}</b><span>minuti</span></div></div>
+    <ol class="rules steps">
       <li>Hai <b>${q.duration} minuti</b> per rispondere a <b>${n} domande</b>.</li>
       <li>Le domande compaiono una alla volta.</li>
       <li>Quando confermi una risposta <b>non puoi più cambiarla</b> né tornare alle domande precedenti.</li>
@@ -368,14 +395,14 @@ function runView() {
   return `<div class="runbar"><div style="min-width:0"><b>${esc(r.title)}</b><div class="small muted mono">( ${pad2(r.pos + 1)} / ${pad2(r.total)} )${S.preview ? ' · anteprima' : ''}</div></div>
     <span class="spacer"></span><div class="timer" id="timer" role="timer" aria-label="Tempo rimanente">${fmtT(r.deadlineLocal - Date.now())}</div>
     <div class="progress"><i style="width:${r.pos / r.total * 100}%"></i></div></div>
-  <div class="stack" style="margin-top:24px"><p class="question">${esc(q.text)}</p>
+  <div class="stack qcard" style="margin-top:24px"><p class="question">${esc(q.text)}</p>
     <div class="choices" role="radiogroup">${q.options.map((o, k) => `<button class="choice" role="radio" data-act="pick" data-o="${o.i}" aria-checked="${r.pick === o.i}"><span class="l">${L(k)}</span><span>${esc(o.text)}</span></button>`).join('')}</div>
     <div class="row"><span class="small muted">La risposta confermata non si può modificare.</span><span class="spacer"></span>
     <button class="btn primary" data-act="confirm" ${r.pick == null || S.saving ? 'disabled' : ''}>${S.saving ? 'Invio…' : last ? 'Conferma e consegna' : 'Conferma e vai avanti →'}</button></div></div>`;
 }
 function doneView() {
   const r = S.lastResult || {};
-  let h = `<div class="card stack" style="text-align:center;align-items:center;padding:36px 20px;margin-top:8px"><span class="chip ok">Quiz consegnato</span>
+  let h = `<div class="card stack done-card" style="text-align:center;align-items:center;padding:40px 20px;margin-top:8px"><div class="badge3d">${ICON.check}</div><span class="chip ok">Quiz consegnato</span>
     <h2>${esc(r.title || '')}</h2>${r.auto ? '<p class="muted">Il tempo è scaduto: il quiz è stato consegnato con le risposte date fino a quel momento.</p>' : ''}`;
   if (S.preview && r.n) h += `<div class="big">${r.score}/${r.n}</div><p class="muted">Anteprima: ${r.pct}% · ${r.pass ? 'superato' : 'non superato'} (soglia ${r.passPct}%). Nessun dato è stato salvato.</p>`;
   else h += `<p class="muted">Grazie. Il responsabile vedrà il risultato.</p>`;
@@ -534,7 +561,7 @@ async function submitSurvey() {
 }
 function surveyDoneView() {
   const r = S.lastResult || {};
-  return `<div class="card stack" style="text-align:center;align-items:center;padding:36px 20px;margin-top:8px"><span class="chip ok">${r.again ? 'Risposte aggiornate' : 'Risposte inviate'}</span>
+  return `<div class="card stack done-card" style="text-align:center;align-items:center;padding:40px 20px;margin-top:8px"><div class="badge3d">${ICON.check}</div><span class="chip ok">${r.again ? 'Risposte aggiornate' : 'Risposte inviate'}</span>
     <h2>Grazie!</h2><p class="muted">Abbiamo ricevuto le tue risposte a “${esc(r.title || '')}”.<br>Se ti accorgi di aver dimenticato qualcosa, puoi modificarle dalla pagina iniziale finché la survey resta aperta.</p>
     <button class="btn" data-act="home">Torna alla pagina iniziale</button></div>`;
 }
@@ -573,7 +600,7 @@ function adminSurveys() {
   let h = `<div class="stack"><div><h2>Survey</h2><p class="muted small">Le survey <b>attive</b> compaiono a tutte le persone autorizzate nella scheda Accessi, insieme ai quiz.<br>Ognuno può aggiornare le proprie risposte finché la survey resta attiva.</p></div><div class="qlist">`;
   for (const s of S.surveys) {
     const d = s.def;
-    h += `<div class="card stack"><div class="qitem" style="padding:0;border:0"><div class="stack" style="gap:8px;min-width:0">
+    h += `<div class="card stack lift${s.active ? ' is-live' : ''}"><div class="qitem" style="padding:0;border:0"><div class="stack" style="gap:8px;min-width:0">
       <div class="row"><h3>${esc(d.title)}</h3>${s.active ? '<span class="chip ok">Attiva</span>' : '<span class="chip">Bozza</span>'}${s.edited ? '<span class="chip acc">Domande modificate</span>' : ''}</div>
       <p class="muted small">${esc(d.subtitle)}</p>
       <div class="meta"><span>${s.count} ${s.count === 1 ? 'risposta' : 'risposte'}</span><span>${S.people.length} ${S.people.length === 1 ? 'persona autorizzata' : 'persone autorizzate'}</span></div></div>
@@ -924,6 +951,24 @@ app.addEventListener('change', e => {
   if (t.dataset.f === 'correct' && S.draft) S.draft.questions[+t.dataset.q].correct = +t.dataset.o;
 });
 window.addEventListener('beforeunload', e => { if (S.view === 'run' && !S.preview) { e.preventDefault(); e.returnValue = ''; } });
+
+/* Effetto 3D delle card: si inclinano seguendo il puntatore (solo mouse, rispetta "riduci movimento") */
+if (matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  let cur = null;
+  app.addEventListener('pointermove', e => {
+    const el = e.target.closest('.tilt');
+    if (cur && cur !== el) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); }
+    cur = el; if (!el) return;
+    const r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    const max = el.classList.contains('login') ? 4 : 7;
+    el.style.setProperty('--rx', ((0.5 - y) * max).toFixed(2) + 'deg');
+    el.style.setProperty('--ry', ((x - 0.5) * max).toFixed(2) + 'deg');
+    el.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
+    el.style.setProperty('--my', (y * 100).toFixed(1) + '%');
+    el.classList.add('is-tilting');
+  });
+  app.addEventListener('pointerleave', () => { if (cur) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); cur = null; } });
+}
 
 boot();
 })();

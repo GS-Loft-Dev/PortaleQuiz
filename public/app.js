@@ -296,7 +296,7 @@ function exportCsv() {
 /* ----- responsabile: accessi ----- */
 function accessView() {
   const list = S.people.slice().sort((a, b) => a.email.localeCompare(b.email));
-  let h = `<div class="stack"><div><h2>Accessi</h2><p class="muted small">Solo le persone in questo elenco possono entrare. Ognuna accede con la sua email e il codice personale generato qui.</p></div>
+  let h = `<div class="stack"><div><h2>Accessi</h2><p class="muted small">Solo le persone in questo elenco possono entrare.<br>Ognuna accede con la sua email e il codice personale generato qui.</p></div>
   <div class="card stack"><label class="f">Aggiungi email <span class="hint">anche più di una, separate da virgola o a capo</span>
     <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it"></textarea></label>
     ${S.accErr ? `<div class="err">${esc(S.accErr)}</div>` : ''}

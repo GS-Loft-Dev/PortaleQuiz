@@ -4,7 +4,7 @@ const app = document.getElementById('app');
 const S = {
   ready: false, role: null, email: null,
   quizzes: [], people: [], attempts: [],
-  view: 'home', tab: 'quiz', draft: null, draftErr: null, sel: null, run: null, preview: false, lastResult: null,
+  view: 'home', tab: 'overview', draft: null, draftErr: null, sel: null, run: null, preview: false, lastResult: null,
   resFilter: 'all', openDetail: null, askDel: null, askReset: null, askRm: null,
   saving: false, loginRole: 'employee', loginErr: null, accErr: null,
   // survey
@@ -30,6 +30,9 @@ const ICON = {
   doc: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
 };
 Object.assign(ICON, {
+  eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg>',
   chart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg>',
   users: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.9 2.6 2.6 3 5.2"/></svg>',
@@ -110,6 +113,7 @@ function render() {
   else if (S.view === 'svdone') h = surveyDoneView();
   else if (S.role === 'admin') {
     if (S.view === 'edit') h = editView();
+    else if (S.tab === 'overview') h = overviewView();
     else if (S.tab === 'results') h = resultsView();
     else if (S.tab === 'access') h = accessView();
     else if (S.tab === 'survey') h = S.svPage === 'responses' ? responsesView() : S.svPage === 'edit' ? svEditView() : adminSurveys();
@@ -127,6 +131,7 @@ function render() {
 }
 function header() {
   const tabs = S.role === 'admin' && !['edit', 'intro', 'done', 'run', 'survey', 'svdone'].includes(S.view) && S.svPage !== 'edit' ? `<nav class="tabs">
+    <button class="tab" data-act="tab" data-v="overview" aria-current="${S.tab === 'overview'}">${ic('home')}Panoramica</button>
     <button class="tab" data-act="tab" data-v="quiz" aria-current="${S.tab === 'quiz'}">${ic('list')}Quiz</button>
     <button class="tab" data-act="tab" data-v="survey" aria-current="${S.tab === 'survey'}">${ic('doc')}Survey</button>
     <button class="tab" data-act="tab" data-v="results" aria-current="${S.tab === 'results'}">${ic('chart')}Risultati</button>
@@ -170,7 +175,7 @@ async function doLogin() {
   S.saving = true; S.loginErr = null; render();
   try {
     const r = await api('login', { method: 'POST', body });
-    S.role = r.role; S.email = r.email || null; S.view = 'home'; S.tab = 'quiz';
+    S.role = r.role; S.email = r.email || null; S.view = 'home'; S.tab = r.role === 'admin' ? 'overview' : 'quiz';
     await loadAll();
   } catch (e) { S.loginErr = e.message; }
   S.saving = false; render();
@@ -187,40 +192,55 @@ function attemptRows() {
     return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.name || 'Senza nome' };
   }).sort((x, y) => (y.a.startedAt || 0) - (x.a.startedAt || 0));
 }
-function adminHome() {
+function overviewView() {
   const rows = attemptRows();
   const live = S.quizzes.filter(q => q.active).length, svLive = S.surveys.filter(x => x.active).length;
   const doneAll = rows.filter(r => r.done), avgAll = doneAll.length ? Math.round(doneAll.reduce((a, r) => a + r.pct, 0) / doneAll.length) : 0;
   const acts = [...rows.map(r => ({ t: r.done ? r.a.finishedAt : r.a.startedAt, who: r.name, email: r.a.email, what: r.done ? `ha consegnato <b>${esc(r.quiz ? r.quiz.title : 'un quiz')}</b>` : `ha iniziato <b>${esc(r.quiz ? r.quiz.title : 'un quiz')}</b>`, tone: r.done ? (r.pass ? 'ok' : 'bad') : 'warn', tag: r.done ? r.pct + '%' : 'in corso' })),
     ...S.responses.map(x => { const sv = S.surveys.find(y => y.def.id === x.surveyId); return { t: x.updatedAt, who: x.name || '', email: x.email, what: `ha inviato <b>${esc(sv ? sv.def.title : 'una survey')}</b>`, tone: 'acc', tag: 'survey' }; })]
-    .filter(a => a.t).sort((a, b) => b.t - a.t).slice(0, 6);
-  let h = `<div class="stack"><section class="overview">
-    <div class="ov-head"><div><p class="eyebrow">Area responsabile · ${esc(today())}</p><h2>Panoramica</h2></div>
-      <div class="phead-a"><button class="btn" data-act="tab" data-v="results">${ic('chart')}Risultati</button><button class="btn primary" data-act="new">${ic('plus')}Nuovo quiz</button></div></div>
+    .filter(a => a.t).sort((a, b) => b.t - a.t).slice(0, 7);
+  // cose da fare per il responsabile, in ordine logico
+  const steps = [
+    { ok: S.people.length > 0, t: 'Autorizza le persone', d: S.people.length ? `${S.people.length} con accesso` : 'Aggiungi le email del team', act: 'tab', v: 'access' },
+    { ok: S.quizzes.length > 0, t: 'Crea un quiz', d: S.quizzes.length ? `${S.quizzes.length} creati` : 'Da zero o incollando le domande', act: S.quizzes.length ? 'tab' : 'new', v: 'quiz' },
+    { ok: live + svLive > 0, t: 'Attiva quiz o survey', d: live + svLive ? `${live} quiz e ${svLive} survey attivi` : 'Diventano visibili al team', act: 'tab', v: 'quiz' },
+    { ok: doneAll.length + S.responses.length > 0, t: 'Leggi i risultati', d: doneAll.length ? `${doneAll.length} consegne, media ${avgAll}%` : 'Compaiono man mano', act: 'tab', v: 'results' },
+  ];
+  let h = `<div class="stack">${pageHead(`Area responsabile · ${esc(today())}`, 'Panoramica', 'Lo stato del portale a colpo d’occhio.',
+      `<button class="btn primary" data-act="new">${ic('plus')}Nuovo quiz</button>`)}
     <div class="kpis">${kpi('Persone', S.people.length, 'con accesso')}${kpi('Quiz attivi', live, `${S.quizzes.length} in totale`, null, 'acc')}
-      ${kpi('Consegne', doneAll.length, `media ${avgAll}%`, avgAll, avgAll >= 80 ? 'ok' : avgAll >= 60 ? 'warn' : doneAll.length ? 'bad' : '')}${kpi('Survey', S.responses.length, `${svLive} ${svLive === 1 ? 'attiva' : 'attive'}`, null, 'acc')}</div>
-    ${acts.length ? `<div class="card feed"><div class="row"><h3>Attività recenti</h3><span class="live-dot" aria-hidden="true"></span><span class="spacer"></span><button class="btn sm ghost" data-act="reload">Aggiorna</button></div>
-      <ul>${acts.map(a => `<li>${avatar(a.who, a.email)}<span class="feed-t"><b>${esc(a.who || a.email)}</b> ${a.what}<span class="small muted"> · ${timeAgo(a.t)}</span></span><span class="chip ${a.tone}">${esc(a.tag)}</span></li>`).join('')}</ul></div>` : ''}
-  </section>
-  ${pageHead('Quiz', 'I tuoi quiz', `${live} ${live === 1 ? 'attivo' : 'attivi'} su ${S.quizzes.length}. Solo i quiz <b>attivi</b> sono visibili ai lavoratori.`)}`;
+      ${kpi('Consegne', doneAll.length, doneAll.length ? `media ${avgAll}%` : 'nessuna ancora', doneAll.length ? avgAll : null, avgAll >= 80 ? 'ok' : avgAll >= 60 ? 'warn' : doneAll.length ? 'bad' : '')}${kpi('Risposte survey', S.responses.length, `${svLive} ${svLive === 1 ? 'survey attiva' : 'survey attive'}`, null, 'acc')}</div>
+    <div class="ov-grid">
+      <div class="card stack"><h3>Come funziona</h3><ol class="flow">${steps.map((x, i) => `<li class="${x.ok ? 'is-ok' : ''}"><button data-act="${x.act}" data-v="${x.v}"><span class="flow-n">${x.ok ? ICON.check : i + 1}</span><span><b>${x.t}</b><span class="small muted">${x.d}</span></span>${ICON.arrow}</button></li>`).join('')}</ol></div>
+      <div class="card feed"><div class="row"><h3>Attività recenti</h3>${acts.length ? '<span class="live-dot" aria-hidden="true"></span>' : ''}<span class="spacer"></span><button class="btn sm ghost" data-act="reload">Aggiorna</button></div>
+        ${acts.length ? `<ul>${acts.map(a => `<li>${avatar(a.who, a.email)}<span class="feed-t"><b>${esc(a.who || a.email)}</b> ${a.what}<span class="small muted"> · ${timeAgo(a.t)}</span></span><span class="chip ${a.tone}">${esc(a.tag)}</span></li>`).join('')}</ul>`
+          : '<p class="muted small" style="margin-top:10px">Qui compariranno consegne e risposte appena arrivano.</p>'}</div>
+    </div></div>`;
+  return h;
+}
+function adminHome() {
+  const rows = attemptRows();
+  const live = S.quizzes.filter(q => q.active).length;
+  let h = `<div class="stack">${pageHead('Quiz', 'I tuoi quiz', `${live} ${live === 1 ? 'attivo' : 'attivi'} su ${S.quizzes.length}. Solo i quiz attivi sono visibili al team.`,
+    `<button class="btn primary" data-act="new">${ic('plus')}Nuovo quiz</button>`)}`;
   if (!S.quizzes.length) return h + `<div class="empty"><h3>Nessun quiz ancora</h3><p>Crea il primo quiz: scrivi le domande o incollale in blocco, imposta durata e soglia di superamento, poi attivalo.</p><p style="margin-top:14px"><button class="btn primary" data-act="new">Crea il primo quiz</button></p></div></div>`;
-  h += '<div class="qlist">';
+  h += '<div class="qgrid">';
   for (const q of S.quizzes) {
     const done = rows.filter(r => r.a.quizId === q.id && r.done).length;
-    const ask = S.askDel === q.id;
-    h += `<div class="card qitem lift${q.active ? ' is-live' : ''}"><div class="stack" style="gap:8px;min-width:0">
-      <div class="row"><h3>${esc(q.title)}</h3>${q.active ? '<span class="chip ok">Attivo</span>' : '<span class="chip">Bozza</span>'}</div>
-      ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
-      <div class="meta">${ic('list')}<span>${q.questions.length} domande</span>${ic('clock')}<span>${q.duration} min</span><span>· Soglia ${q.passPct}%</span></div>
-      <div class="progress-mini" title="Consegnati su persone autorizzate"><span class="pm-bar"><i style="width:${S.people.length ? Math.min(100, Math.round(done / S.people.length * 100)) : 0}%"></i></span><span class="small muted"><b>${done}</b>${S.people.length ? ` / ${S.people.length}` : ''} consegnati</span></div></div>
-      <div class="actions">${ask ? `<span class="small muted">Eliminare il quiz?</span><button class="btn sm danger solid" data-act="delok" data-id="${q.id}">Elimina</button><button class="btn sm" data-act="delno">Annulla</button>` :
-      `<button class="btn sm" data-act="toggle" data-id="${q.id}">${q.active ? 'Disattiva' : 'Attiva'}</button>
-       <button class="btn sm" data-act="edit" data-id="${q.id}">Modifica</button>
-       <button class="btn sm" data-act="preview" data-id="${q.id}">Anteprima</button>
-       <button class="btn sm" data-act="seeres" data-id="${q.id}">Risultati</button>
-       <button class="btn sm ghost danger" data-act="delask" data-id="${q.id}">Elimina</button>`}</div></div>`;
+    const ask = S.askDel === q.id, pct = S.people.length ? Math.min(100, Math.round(done / S.people.length * 100)) : 0;
+    h += `<article class="qcard2${q.active ? ' is-live' : ''}">
+      <div class="qc-top"><button class="switch" role="switch" aria-checked="${!!q.active}" data-act="toggle" data-id="${q.id}" title="${q.active ? 'Attivo: visibile al team. Clicca per disattivare' : 'Bozza: clicca per attivare'}"><i></i></button>
+        <span class="small ${q.active ? 'live-t' : 'muted'}">${q.active ? 'Attivo' : 'Bozza'}</span><span class="spacer"></span>
+        <button class="icon-btn" data-act="preview" data-id="${q.id}" title="Anteprima">${ICON.eye}</button>
+        <button class="icon-btn danger" data-act="delask" data-id="${q.id}" title="Elimina">${ICON.trash}</button></div>
+      <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small qc-desc">${esc(q.desc)}</p>` : ''}
+      <div class="meta">${ic('list')}<span>${q.questions.length} domande</span>${ic('clock')}<span>${q.duration} min</span><span>· soglia ${q.passPct}%</span></div>
+      <div class="progress-mini"><span class="pm-bar"><i style="width:${pct}%"></i></span><span class="small muted"><b>${done}</b>${S.people.length ? `/${S.people.length}` : ''} consegnati</span></div>
+      ${ask ? `<div class="qc-ask"><span class="small">Eliminare il quiz? Non si torna indietro.</span><button class="btn sm danger solid" data-act="delok" data-id="${q.id}">Elimina</button><button class="btn sm" data-act="delno">Annulla</button></div>`
+        : `<div class="qc-foot"><button class="btn" data-act="edit" data-id="${q.id}">Modifica</button><button class="btn" data-act="seeres" data-id="${q.id}">${ic('chart')}Risultati</button></div>`}
+    </article>`;
   }
-  return h + `</div><p class="small muted">Per far svolgere un quiz: attivalo, autorizza le email nella scheda <b>Accessi</b> e manda a ogni lavoratore il link del sito con la sua email e il suo codice.</p></div>`;
+  return h + `</div></div>`;
 }
 const blankQ = () => ({ text: '', options: ['', '', '', ''], correct: null });
 function editView() {
@@ -399,44 +419,41 @@ async function addAccess() {
 }
 
 /* ----- lavoratore ----- */
+function quizTile(q) {
+  const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia ${ic('arrow')}</button>` : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi ${ic('arrow')}</button>`;
+  return `<article class="tile tilt kind-quiz"><div class="tile-in">
+    <div class="tile-top"><span class="kind">${ic('list')}Quiz</span>${q.status === 'da_fare' ? '' : '<span class="chip warn">In corso</span>'}</div>
+    <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
+    <div class="meta">${ic('list')}<span>${q.count} domande</span>${ic('clock')}<span>${q.duration} minuti</span></div>
+    <div class="tile-foot">${act}</div></div></article>`;
+}
+function surveyTile(s) {
+  return `<article class="tile tilt kind-survey"><div class="tile-in">
+    <div class="tile-top"><span class="kind">${ic('doc')}Survey</span></div>
+    <h3>${esc(s.title)}</h3><p class="muted small">${esc(s.subtitle)}</p>
+    <div class="meta">${ic('clock')}<span>${esc(s.estimate.replace('Tempo di compilazione: circa', 'Circa').replace(/\.$/, ''))}</span></div>
+    <div class="tile-foot"><button class="btn primary" data-act="svopen" data-id="${s.id}">Compila ${ic('arrow')}</button></div></div></article>`;
+}
 function employeeHome() {
-  const todo = S.quizzes.filter(q => q.status !== 'consegnato').length + S.surveys.filter(s => !s.submittedAt).length;
-  const total = S.quizzes.length + S.surveys.length, doneN = total - todo, pctDone = total ? Math.round(doneN / total * 100) : 100, nm = firstName(S.email);
+  const todoQ = S.quizzes.filter(q => q.status !== 'consegnato'), todoS = S.surveys.filter(s => !s.submittedAt);
+  const doneQ = S.quizzes.filter(q => q.status === 'consegnato'), doneS = S.surveys.filter(s => s.submittedAt);
+  const todo = todoQ.length + todoS.length, total = S.quizzes.length + S.surveys.length, doneN = total - todo;
+  const pctDone = total ? Math.round(doneN / total * 100) : 100, nm = firstName(S.email);
   let h = `<div class="stack"><section class="hero-band">
     <div class="hero-txt"><p class="eyebrow">${esc(today())}</p><h2>Ciao${nm ? ' ' + esc(nm) : ''}<span class="wave" aria-hidden="true">.</span></h2>
-      <p class="muted">${todo ? `Hai <b>${todo} ${todo === 1 ? 'attività' : 'attività'}</b> da completare. Qui trovi survey e quiz attivati dal responsabile.` : total ? 'Hai completato tutto. Grazie!' : 'Per ora non ci sono attività: quando il responsabile ne attiva una, la trovi qui.'}</p>
-      <div class="hero-stats"><div class="hero-stat"><b>${todo}</b><span>da fare</span></div><div class="hero-stat"><b>${doneN}</b><span>completate</span></div>
-      <button class="btn" data-act="reload">Aggiorna</button></div></div>
-    <div class="hero-ring" style="--p:${pctDone}" aria-label="Completamento ${pctDone}%"><div><b>${pctDone}%</b><span>completato</span></div></div>
+      <p class="muted">${todo ? `Hai <b>${todo} ${todo === 1 ? 'attività' : 'attività'}</b> da completare.` : total ? 'Sei in pari: hai completato tutto. Grazie!' : 'Per ora non ci sono attività. Quando ne viene attivata una, la trovi qui.'}</p></div>
+    ${total ? `<div class="hero-ring" style="--p:${pctDone}" aria-label="Completamento ${pctDone}%"><div><b>${pctDone}%</b><span>fatto</span></div></div>` : ''}
   </section>`;
-  if (!S.quizzes.length && !S.surveys.length) return h + '</div>';
-  if (S.surveys.length) {
-    h += '<h3 class="sec-t">Survey</h3><div class="tiles">';
-    for (const s of S.surveys) {
-      h += `<article class="tile tilt kind-survey${s.submittedAt ? ' is-done' : ''}"><div class="tile-in">
-        <div class="tile-top"><span class="kind">${ic('doc')}Survey</span>${s.submittedAt ? `<span class="chip ok">${ic('check')}Inviata</span>` : '<span class="chip acc">Da compilare</span>'}</div>
-        <h3>${esc(s.title)}</h3><p class="muted small">${esc(s.subtitle)}</p>
-        <div class="meta">${ic('clock')}<span>${esc(s.estimate.replace('Tempo di compilazione: circa', 'Circa').replace(/\.$/, ''))}</span>${s.submittedAt ? `<span>· Inviata il ${fmtD(s.submittedAt)}</span>` : ''}</div>
-        <div class="tile-foot">${s.submittedAt ? `<button class="btn" data-act="svopen" data-id="${s.id}">Modifica risposte</button>`
-          : `<button class="btn primary" data-act="svopen" data-id="${s.id}">Compila ${ic('arrow')}</button>`}</div></div></article>`;
-    }
-    h += '</div>';
+  if (todo) {
+    h += `<div class="sec-h"><h3>Da completare</h3><span class="count">${todo}</span><span class="spacer"></span><button class="btn sm ghost" data-act="reload">Aggiorna</button></div><div class="tiles">${todoS.map(surveyTile).join('')}${todoQ.map(quizTile).join('')}</div>`;
+    if (todoQ.length) h += '<p class="small muted">I quiz sono a tempo e si possono svolgere una sola volta: inizia quando hai il tempo indicato a disposizione.</p>';
   }
-  if (!S.quizzes.length) return h + '</div>';
-  h += `<h3 class="sec-t">Quiz</h3><p class="muted small" style="margin-top:-10px">Ogni quiz si può svolgere una sola volta.</p><div class="tiles">`;
-  for (const q of S.quizzes) {
-    const done = q.status === 'consegnato';
-    const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia ${ic('arrow')}</button>`
-      : done ? `<span class="small muted">Consegnato il ${fmtD(q.finishedAt)}</span>`
-      : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi ${ic('arrow')}</button>`;
-    const chip = done ? `<span class="chip ok">${ic('check')}Consegnato</span>` : q.status === 'da_fare' ? '<span class="chip acc">Da fare</span>' : '<span class="chip warn">In corso</span>';
-    h += `<article class="tile tilt kind-quiz${done ? ' is-done' : ''}"><div class="tile-in">
-      <div class="tile-top"><span class="kind">${ic('list')}Quiz</span>${chip}</div>
-      <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
-      <div class="tile-nums"><div><b>${q.count}</b><span>domande</span></div><div><b>${q.duration}</b><span>minuti</span></div></div>
-      <div class="tile-foot">${act}</div></div></article>`;
+  if (doneQ.length || doneS.length) {
+    h += `<div class="sec-h"><h3>Completati</h3><span class="count ok">${doneQ.length + doneS.length}</span></div><div class="done-list">
+      ${doneS.map(s => `<div class="done-row"><span class="dr-ic ok">${ICON.check}</span><div class="dr-t"><b>${esc(s.title)}</b><span class="small muted">Survey · inviata il ${fmtD(s.submittedAt)}</span></div><button class="btn sm" data-act="svopen" data-id="${s.id}">Modifica risposte</button></div>`).join('')}
+      ${doneQ.map(q => `<div class="done-row"><span class="dr-ic ok">${ICON.check}</span><div class="dr-t"><b>${esc(q.title)}</b><span class="small muted">Quiz · consegnato il ${fmtD(q.finishedAt)}</span></div></div>`).join('')}</div>`;
   }
-  return h + '</div></div>';
+  return h + '</div>';
 }
 function introView() {
   const q = S.quizzes.find(x => x.id === S.sel); if (!q) return '';
@@ -1065,5 +1082,16 @@ if (matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(pr
   app.addEventListener('pointerleave', () => { if (cur) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); cur = null; } });
 }
 
+/* Intro animata all'apertura (una volta per sessione del browser) */
+function intro() {
+  let seen = false; try { seen = sessionStorage.getItem('gsl-intro') === '1'; sessionStorage.setItem('gsl-intro', '1'); } catch (e) {}
+  if (seen || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const el = document.createElement('div'); el.className = 'intro'; el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `<div class="intro-in"><span class="intro-logo"></span><span class="intro-line"></span><span class="intro-word">Learning</span><span class="intro-sub">Quiz &amp; survey del team</span></div>`;
+  document.body.appendChild(el);
+  const close = () => { if (el.classList.contains('out')) return; el.classList.add('out'); setTimeout(() => el.remove(), 700); };
+  el.addEventListener('click', close); setTimeout(close, 2300);
+}
+intro();
 boot();
 })();

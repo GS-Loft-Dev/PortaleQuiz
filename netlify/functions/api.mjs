@@ -2,8 +2,7 @@
 // Dati salvati in Netlify Blobs (store "quiz-gsloft"), sessione in cookie HttpOnly firmato.
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
-import nodemailer from "nodemailer";
-import { TEMPLATE_XLSX_B64, TEMPLATE_CSV } from "./templates.mjs";
+import { SURVEYS, getSurveyDef, cleanAnswers, respondentName } from "../lib/surveys.mjs";
 
 export const config = { path: "/api/*" };
 
@@ -82,6 +81,22 @@ const attemptKey = (quizId, email) => `attempts/${quizId}/${emailKey(email)}`;
 const getAttempt = (quizId, email) => db().get(attemptKey(quizId, email), { type: "json" });
 const saveAttempt = (a) => db().setJSON(attemptKey(a.quizId, a.email), a);
 
+/* ---------------- survey ---------------- */
+// Configurazione modificabile dal responsabile: survey attiva o no, elenco nomi della domanda 1.
+async function getSurveyConfig(id) {
+  const c = await db().get("survey-config/" + id, { type: "json" });
+  return { active: !!c?.active, names: Array.isArray(c?.names) ? c.names : [], updatedAt: c?.updatedAt || null };
+}
+const responseKey = (surveyId, email) => `survey-responses/${surveyId}/${emailKey(email)}`;
+async function listResponses(prefix = "survey-responses/") {
+  const store = db();
+  const { blobs } = await store.list({ prefix });
+  const all = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" }).then((r) => r && { ...r, key: b.key })));
+  return all.filter(Boolean).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+const cleanNames = (list) =>
+  [...new Set((Array.isArray(list) ? list : []).map((n) => String(n || "").trim().replace(/\s+/g, " ").slice(0, 120)).filter(Boolean))].slice(0, 500);
+
 function validateQuiz(q) {
   const str = (v, max) => typeof v === "string" && v.trim().length > 0 && v.length <= max;
   if (!q || typeof q !== "object") return "Dati del quiz mancanti.";
@@ -89,8 +104,6 @@ function validateQuiz(q) {
   if (q.desc && (typeof q.desc !== "string" || q.desc.length > 2000)) return "Istruzioni troppo lunghe.";
   if (!Number.isInteger(q.duration) || q.duration < 1 || q.duration > 300) return "Durata tra 1 e 300 minuti.";
   if (!Number.isInteger(q.passPct) || q.passPct < 0 || q.passPct > 100) return "Soglia tra 0 e 100.";
-  if (q.audience != null && (!Array.isArray(q.audience) || q.audience.length > 1000 || !q.audience.every((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normEmail(e)))))
-    return "Indirizzi non validi in \"Visibile a\".";
   if (!Array.isArray(q.questions) || q.questions.length < 1 || q.questions.length > 300) return "Servono da 1 a 300 domande.";
   for (const [i, x] of q.questions.entries()) {
     if (!str(x.text, 3000)) return `Domanda ${i + 1}: testo mancante.`;
@@ -98,146 +111,8 @@ function validateQuiz(q) {
       return `Domanda ${i + 1}: servono da 2 a 6 risposte compilate.`;
     if (!Number.isInteger(x.correct) || x.correct < 0 || x.correct >= x.options.length)
       return `Domanda ${i + 1}: indica la risposta corretta.`;
-    if (x.section != null && (typeof x.section !== "string" || x.section.length > 120)) return `Domanda ${i + 1}: nome della sezione non valido.`;
   }
   return null;
-}
-
-/* ---------------- email ---------------- */
-const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const mailConfigured = () => !!process.env.MAIL_FROM && !!(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
-const siteUrl = () => (process.env.SITE_URL || process.env.URL || "").replace(/\/$/, "");
-
-// Invia una lista di email {to, subject, html, text}. Usa Resend se c'è RESEND_API_KEY, altrimenti SMTP.
-async function sendMails(msgs) {
-  const from = process.env.MAIL_FROM;
-  let sent = 0;
-  const failed = [];
-  if (process.env.RESEND_API_KEY) {
-    for (let i = 0; i < msgs.length; i += 100) {
-      const chunk = msgs.slice(i, i + 100);
-      const r = await fetch("https://api.resend.com/emails/batch", {
-        method: "POST",
-        headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
-        body: JSON.stringify(chunk.map((m) => ({ from, to: [m.to], subject: m.subject, html: m.html, text: m.text }))),
-      });
-      if (r.ok) sent += chunk.length;
-      else { failed.push(...chunk.map((m) => m.to)); console.error("Resend:", r.status, await r.text()); }
-    }
-    return { sent, failed };
-  }
-  const port = Number(process.env.SMTP_PORT || 465);
-  const t = nodemailer.createTransport({
-    host: process.env.SMTP_HOST, port, secure: port === 465, pool: true, maxConnections: 3,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
-  const res = await Promise.allSettled(msgs.map((m) => t.sendMail({ from, to: m.to, subject: m.subject, html: m.html, text: m.text })));
-  t.close();
-  res.forEach((r, i) => { if (r.status === "fulfilled") sent++; else { failed.push(msgs[i].to); console.error("SMTP:", r.reason?.message); } });
-  return { sent, failed };
-}
-
-function quizMail(quiz, person) {
-  const link = siteUrl() || "(link del sito)";
-  const n = quiz.questions.length;
-  const nd = n === 1 ? "1 domanda" : `${n} domande`;
-  const subject = `Nuovo quiz disponibile: ${quiz.title}`;
-  const text = `Ciao,\n\nè disponibile un nuovo quiz: "${quiz.title}".\n${nd}, ${quiz.duration} minuti.\n\nAccedi da: ${link}\nEmail: ${person.email}\nCodice di accesso: ${person.code}\n\nLe domande compaiono una alla volta e non si può tornare indietro: mettiti in un momento tranquillo prima di iniziare.\n\nGS LOFT`;
-  const html = `<div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#111">
-  <div style="background:#111;color:#fff;padding:18px 24px;font-weight:700;letter-spacing:.04em;font-size:20px">GS·LOFT</div>
-  <div style="padding:24px;border:1px solid #e1e1de;border-top:0">
-    <p style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#0a7a6d;font-weight:700">Nuovo quiz</p>
-    <h1 style="margin:0 0 12px;font-size:22px">${escHtml(quiz.title)}</h1>
-    <p style="margin:0 0 18px;color:#5f5f5c">${nd} · ${quiz.duration} minuti</p>
-    ${quiz.desc ? `<p style="margin:0 0 18px">${escHtml(quiz.desc)}</p>` : ""}
-    <table style="border-collapse:collapse;margin:0 0 20px;font-size:15px"><tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Email</td><td><b>${escHtml(person.email)}</b></td></tr>
-    <tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Codice</td><td style="font-family:Menlo,monospace;font-size:17px;letter-spacing:.12em"><b>${escHtml(person.code)}</b></td></tr></table>
-    <a href="${escHtml(link)}" style="display:inline-block;background:#2ec4b0;color:#0b0b0b;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:6px">Vai al quiz</a>
-    <p style="margin:20px 0 0;font-size:13px;color:#5f5f5c">Le domande compaiono una alla volta e non si può tornare indietro: mettiti in un momento tranquillo prima di iniziare.</p>
-  </div></div>`;
-  return { to: person.email, subject, text, html };
-}
-
-// Email di benvenuto (accesso creato) o di nuovo codice.
-function accessMail(person, activeQuizzes, renewed) {
-  const link = siteUrl() || "(link del sito)";
-  const subject = renewed ? "Il tuo nuovo codice per i Quiz GS LOFT" : "Il tuo accesso ai Quiz GS LOFT";
-  const intro = renewed
-    ? "il tuo codice di accesso ai Quiz GS LOFT è stato rinnovato. Quello precedente non funziona più."
-    : "ti è stato creato l'accesso ai Quiz GS LOFT, la piattaforma per i quiz di verifica dei lavoratori.";
-  const nq = activeQuizzes.length;
-  const quizLine = nq ? (nq === 1 ? `C'è già un quiz da svolgere: "${activeQuizzes[0].title}".` : `Ci sono già ${nq} quiz da svolgere.`)
-    : "Quando verrà pubblicato un quiz riceverai un'email di avviso.";
-  const text = `Ciao,\n\n${intro}\n\nAccedi da: ${link}\nScegli "Lavoratore" e inserisci:\nEmail: ${person.email}\nCodice di accesso: ${person.code}\n\n${quizLine}\n\nConserva questa email: il codice ti servirà per tutti i quiz.\n\nGS LOFT`;
-  const html = `<div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#111">
-  <div style="background:#111;color:#fff;padding:18px 24px;font-weight:700;letter-spacing:.04em;font-size:20px">GS·LOFT</div>
-  <div style="padding:24px;border:1px solid #e1e1de;border-top:0">
-    <p style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:#0a7a6d;font-weight:700">${renewed ? "Nuovo codice" : "Accesso creato"}</p>
-    <h1 style="margin:0 0 12px;font-size:22px">Quiz lavoratori</h1>
-    <p style="margin:0 0 18px">Ciao, ${escHtml(intro)}</p>
-    <p style="margin:0 0 8px;color:#5f5f5c">Apri il sito, scegli <b>Lavoratore</b> e inserisci:</p>
-    <table style="border-collapse:collapse;margin:0 0 20px;font-size:15px"><tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Email</td><td><b>${escHtml(person.email)}</b></td></tr>
-    <tr><td style="padding:4px 16px 4px 0;color:#5f5f5c">Codice</td><td style="font-family:Menlo,monospace;font-size:17px;letter-spacing:.12em"><b>${escHtml(person.code)}</b></td></tr></table>
-    <a href="${escHtml(link)}" style="display:inline-block;background:#2ec4b0;color:#0b0b0b;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:6px">Accedi ai quiz</a>
-    <p style="margin:20px 0 0;font-size:14px">${escHtml(quizLine)}</p>
-    <p style="margin:12px 0 0;font-size:13px;color:#5f5f5c">Conserva questa email: il codice ti servirà per tutti i quiz.</p>
-  </div></div>`;
-  return { to: person.email, subject, text, html };
-}
-
-// Invia l'email di accesso alle persone indicate e registra la data di invio nell'elenco.
-async function sendAccess(targets, renewed = false) {
-  if (!mailConfigured() || !targets.length) return { configured: mailConfigured(), sent: 0, failed: [] };
-  const active = (await listQuizzes()).filter((q) => q.active);
-  const r = await sendMails(targets.map((p) => accessMail(p, active.filter((q) => canSee(q, p.email)), renewed)));
-  const ok = new Set(targets.map((p) => p.email).filter((e) => !r.failed.includes(e)));
-  const list = (await getPeople()).map((p) => (ok.has(p.email) ? { ...p, mailedAt: Date.now() } : p));
-  await db().setJSON("people", { list });
-  return { configured: true, ...r, people: list };
-}
-
-// Avvisa tutti i lavoratori abilitati e segna il quiz come notificato.
-// Destinatari: tutti gli autorizzati, oppure solo quelli indicati in "Visibile a".
-// Di default avvisa solo chi non è ancora stato avvisato per questo quiz; force = tutti.
-async function notifyQuiz(quiz, force = false) {
-  if (!mailConfigured()) return { configured: false, sent: 0, failed: [] };
-  const people = await getPeople();
-  // quiz avvisati con la versione precedente (senza elenco): considera già avvisati tutti
-  if (!quiz.notified && quiz.notifiedAt) quiz.notified = people.map((p) => p.email);
-  const already = new Set(quiz.notified || []);
-  const targets = people.filter((p) => canSee(quiz, p.email) && (force || !already.has(p.email)));
-  if (!targets.length) return { configured: true, sent: 0, failed: [] };
-  const r = await sendMails(targets.map((p) => quizMail(quiz, p)));
-  const ok = targets.map((p) => p.email).filter((e) => !r.failed.includes(e));
-  quiz.notified = [...new Set([...(quiz.notified || []), ...ok])];
-  quiz.notifiedAt = Date.now();
-  quiz.notifiedCount = quiz.notified.length;
-  await db().setJSON("quizzes/" + quiz.id, quiz);
-  return { configured: true, ...r };
-}
-// Un quiz è visibile a un lavoratore se è attivo e "Visibile a" è vuoto o contiene la sua email.
-const canSee = (quiz, email) => !quiz.audience || !quiz.audience.length || quiz.audience.includes(normEmail(email));
-
-/* ---------------- sezioni ---------------- */
-// Sezioni nell'ordine in cui compaiono nel quiz.
-function sectionNames(quiz) {
-  return [...new Set(quiz.questions.map((q) => q.section || "").filter(Boolean))];
-}
-function sectionScores(quiz, answers) {
-  const names = sectionNames(quiz);
-  if (!names.length) return [];
-  return names.map((name) => {
-    const idx = quiz.questions.map((q, i) => (q.section === name ? i : -1)).filter((i) => i >= 0);
-    return { name, score: idx.filter((i) => answers[i] === quiz.questions[i].correct).length, total: idx.length };
-  });
-}
-// Ordine delle domande: con le sezioni si mantiene l'ordine delle sezioni e si mescola solo all'interno di ciascuna.
-function questionOrder(quiz) {
-  const n = quiz.questions.length;
-  const names = sectionNames(quiz);
-  if (!names.length) return quiz.shuffleQ ? shuffle(range(n)) : range(n);
-  const groups = [...names, ""].map((name) => range(n).filter((i) => (quiz.questions[i].section || "") === name));
-  return groups.flatMap((g) => (quiz.shuffleQ ? shuffle(g) : g));
 }
 
 /* ---------------- logica del tentativo ---------------- */
@@ -248,15 +123,14 @@ async function finalize(a, quiz, auto) {
   a.finishedAt = auto ? Math.min(now, a.deadline) : now;
   a.total = quiz.questions.length;
   a.score = quiz.questions.reduce((s, q, i) => s + (a.answers[i] === q.correct ? 1 : 0), 0);
-  a.sections = sectionScores(quiz, a.answers);
   await saveAttempt(a);
   return a;
 }
-// Lo stato restituito al lavoratore: mai le risposte corrette, mai le domande successive.
+// Lo stato restituito al dipendente: mai le risposte corrette, mai le domande successive.
 async function publicState(a, quiz) {
   if (a.status === "in_corso" && (Date.now() > a.deadline || a.pos >= quiz.questions.length))
     await finalize(a, quiz, a.pos < quiz.questions.length);
-  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto }; // nessun punteggio al lavoratore
+  if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto };
   const qi = a.order[a.pos];
   const q = quiz.questions[qi];
   return {
@@ -266,7 +140,7 @@ async function publicState(a, quiz) {
     pos: a.pos,
     total: quiz.questions.length,
     remainingMs: Math.max(0, a.deadline - Date.now()),
-    question: { text: q.text, section: q.section || "", options: a.optOrder[qi].map((i) => ({ i, text: q.options[i] })) },
+    question: { text: q.text, options: a.optOrder[qi].map((i) => ({ i, text: q.options[i] })) },
   };
 }
 
@@ -315,33 +189,63 @@ export default async (req) => {
       return json({ role: s.role, email: s.email || null });
     }
 
-    /* ----- area lavoratore ----- */
+    /* ----- area dipendente ----- */
     if (s.role === "employee") {
-      if (route.startsWith("admin/")) return fail("Riservato al responsabile.", 403);
       if (!(await getPeople()).some((p) => p.email === s.email)) return fail("Accesso revocato.", 401);
 
       if (route === "quizzes" && method === "GET") {
-        const quizzes = (await listQuizzes()).filter((q) => q.active && canSee(q, s.email));
+        const quizzes = (await listQuizzes()).filter((q) => q.active);
         const out = [];
         for (const q of quizzes) {
           const a = await getAttempt(q.id, s.email);
           out.push({ id: q.id, title: q.title, desc: q.desc || "", duration: q.duration, count: q.questions.length,
-            status: a ? a.status : "da_fare", finishedAt: a?.finishedAt || null });
+            status: a ? a.status : "da_fare", finishedAt: a?.finishedAt || null, name: a?.name || null });
         }
         return json({ quizzes: out });
       }
 
+      /* survey: elenco, apertura, invio (le risposte si possono aggiornare finché la survey è attiva) */
+      if (route === "surveys" && method === "GET") {
+        const out = [];
+        for (const def of SURVEYS) {
+          const cfg = await getSurveyConfig(def.id);
+          if (!cfg.active) continue;
+          const r = await db().get(responseKey(def.id, s.email), { type: "json" });
+          out.push({ id: def.id, title: def.title, subtitle: def.subtitle, estimate: def.estimate, submittedAt: r?.updatedAt || null });
+        }
+        return json({ surveys: out });
+      }
+      if (route === "survey") {
+        const def = getSurveyDef(body.id || url.searchParams.get("id"));
+        const cfg = def && (await getSurveyConfig(def.id));
+        if (!def || !cfg.active) return fail("Survey non disponibile.", 404);
+        const key = responseKey(def.id, s.email);
+        const old = await db().get(key, { type: "json" });
+        if (method === "GET") return json({ survey: def, names: cfg.names, mine: old?.answers || null, submittedAt: old?.updatedAt || null });
+        if (method === "PUT") {
+          const { answers, errors } = cleanAnswers(def, body.answers, cfg.names);
+          if (errors.length) return fail("Risposte incomplete: " + errors.slice(0, 3).join(" "), 400);
+          const now = Date.now();
+          const rec = { surveyId: def.id, email: s.email, name: respondentName(def, answers).slice(0, 120), answers,
+            createdAt: old?.createdAt || now, updatedAt: now, edits: (old?.edits || 0) + (old ? 1 : 0) };
+          await db().setJSON(key, rec);
+          return json({ ok: true, submittedAt: now });
+        }
+      }
+
       const quizId = body.quizId || url.searchParams.get("quizId");
       const quiz = quizId && (await getQuiz(quizId));
-      if (!quiz || !quiz.active || !canSee(quiz, s.email)) return fail("Quiz non disponibile.", 404);
+      if (!quiz || !quiz.active) return fail("Quiz non disponibile.", 404);
 
       if (route === "start" && method === "POST") {
+        const name = String(body.name || "").trim().slice(0, 120);
+        if (!name) return fail("Scrivi nome e cognome.");
         let a = await getAttempt(quiz.id, s.email);
         if (!a) {
           const n = quiz.questions.length, now = Date.now();
           a = {
-            quizId: quiz.id, email: s.email, startedAt: now, deadline: now + quiz.duration * 60000,
-            order: questionOrder(quiz),
+            quizId: quiz.id, email: s.email, name, startedAt: now, deadline: now + quiz.duration * 60000,
+            order: quiz.shuffleQ ? shuffle(range(n)) : range(n),
             optOrder: quiz.questions.map((x) => (quiz.shuffleO ? shuffle(range(x.options.length)) : range(x.options.length))),
             answers: {}, pos: 0, status: "in_corso", leaves: 0,
           };
@@ -390,55 +294,22 @@ export default async (req) => {
           id, title: q.title.trim(), desc: (q.desc || "").trim(), duration: q.duration, passPct: q.passPct,
           shuffleQ: !!q.shuffleQ, shuffleO: !!q.shuffleO, active: !!q.active,
           createdAt: old?.createdAt || Date.now(), updatedAt: Date.now(),
-          audience: [...new Set((q.audience || []).map(normEmail))],
-          notified: old?.notified || [], notifiedAt: old?.notifiedAt || null, notifiedCount: old?.notifiedCount || 0,
-          questions: q.questions.map((x) => ({ text: x.text.trim(), options: x.options.map((o) => o.trim()), correct: x.correct, section: (x.section || "").trim() })),
+          questions: q.questions.map((x) => ({ text: x.text.trim(), options: x.options.map((o) => o.trim()), correct: x.correct })),
         };
         await db().setJSON("quizzes/" + id, clean);
-        // Quiz attivo: avvisa via email chi lo può vedere e non è ancora stato avvisato
-        const notify = clean.active ? await notifyQuiz(clean) : null;
-        return json({ quiz: clean, notify });
+        return json({ quiz: clean });
       }
       if (method === "PATCH") {
         const q = await getQuiz(body.id);
         if (!q) return fail("Quiz non trovato.", 404);
         q.active = !!body.active; q.updatedAt = Date.now();
         await db().setJSON("quizzes/" + q.id, q);
-        const notify = q.active ? await notifyQuiz(q) : null;
-        return json({ quiz: q, notify });
+        return json({ quiz: q });
       }
       if (method === "DELETE") {
         await db().delete("quizzes/" + url.searchParams.get("id"));
         return json({ ok: true });
       }
-    }
-
-    if (route === "admin/notify" && method === "POST") {
-      const q = await getQuiz(body.id);
-      if (!q) return fail("Quiz non trovato.", 404);
-      if (!q.active) return fail("Attiva il quiz prima di inviare l'avviso.");
-      if (!mailConfigured()) return fail("Invio email non disponibile.");
-      return json({ notify: await notifyQuiz(q, true) });
-    }
-    if (route === "admin/template" && method === "GET") {
-      const csv = url.searchParams.get("format") === "csv";
-      return new Response(csv ? TEMPLATE_CSV : Buffer.from(TEMPLATE_XLSX_B64, "base64"), {
-        headers: {
-          "content-type": csv ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "content-disposition": `attachment; filename="modello-quiz.${csv ? "csv" : "xlsx"}"`,
-          "cache-control": "no-store",
-        },
-      });
-    }
-    if (route === "admin/mailstatus" && method === "GET") return json({ configured: mailConfigured() });
-
-    if (route === "admin/people/send" && method === "POST") {
-      if (!mailConfigured()) return fail("Invio email non disponibile.");
-      const email = normEmail(body.email);
-      const p = (await getPeople()).find((x) => x.email === email);
-      if (!p) return fail("Email non trovata negli accessi.", 404);
-      const mail = await sendAccess([p]);
-      return json({ people: mail.people, mail: { configured: true, sent: mail.sent, failed: mail.failed } });
     }
 
     if (route === "admin/people") {
@@ -452,15 +323,13 @@ export default async (req) => {
         const add = emails.filter((e) => !people.some((p) => p.email === e)).map((email) => ({ email, code: newCode(), addedAt: Date.now() }));
         const list = [...people, ...add];
         await db().setJSON("people", { list });
-        const mail = await sendAccess(add);
-        return json({ people: mail.people || list, added: add.length, mail: { configured: mail.configured, sent: mail.sent, failed: mail.failed } });
+        return json({ people: list, added: add.length });
       }
       if (method === "PATCH") { // nuovo codice per una persona
         const email = normEmail(body.email);
         const list = people.map((p) => (p.email === email ? { ...p, code: newCode() } : p));
         await db().setJSON("people", { list });
-        const mail = await sendAccess(list.filter((p) => p.email === email), true);
-        return json({ people: mail.people || list, mail: { configured: mail.configured, sent: mail.sent, failed: mail.failed } });
+        return json({ people: list });
       }
       if (method === "DELETE") {
         const email = normEmail(url.searchParams.get("email"));
@@ -480,6 +349,34 @@ export default async (req) => {
         if (q && a.status === "in_corso" && Date.now() > a.deadline + GRACE_MS) await finalize(a, q, true);
       }
       return json({ attempts });
+    }
+
+    if (route === "admin/surveys") {
+      if (method === "GET") {
+        const responses = await listResponses();
+        const surveys = await Promise.all(SURVEYS.map(async (def) => ({ ...(await getSurveyConfig(def.id)), def,
+          count: responses.filter((r) => r.surveyId === def.id).length })));
+        return json({ surveys });
+      }
+      if (method === "PATCH") {
+        const def = getSurveyDef(body.id);
+        if (!def) return fail("Survey non trovata.", 404);
+        const cfg = await getSurveyConfig(def.id);
+        if ("active" in body) cfg.active = !!body.active;
+        if ("names" in body) cfg.names = cleanNames(body.names);
+        cfg.updatedAt = Date.now();
+        await db().setJSON("survey-config/" + def.id, cfg);
+        return json({ ok: true, ...cfg });
+      }
+    }
+
+    if (route === "admin/survey-responses" && method === "GET") return json({ responses: await listResponses() });
+
+    if (route === "admin/survey-response" && method === "DELETE") {
+      const key = url.searchParams.get("key") || "";
+      if (!/^survey-responses\/[\w-]+\/[a-f0-9]{32}$/.test(key)) return fail("Risposta non valida.");
+      await db().delete(key);
+      return json({ ok: true });
     }
 
     if (route === "admin/attempt" && method === "DELETE") {

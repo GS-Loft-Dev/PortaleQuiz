@@ -189,7 +189,8 @@ function attemptRows() {
     const n = a.total || (quiz ? quiz.questions.length : 0);
     const score = done ? a.score : 0;
     const pct = done && n ? Math.round(score / n * 100) : 0;
-    return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.name || 'Senza nome' };
+    const fromEmail = String(a.email || '').split('@')[0].split(/[._\-+]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.name || fromEmail || 'Senza nome' };
   }).sort((x, y) => (y.a.startedAt || 0) - (x.a.startedAt || 0));
 }
 function overviewView() {
@@ -395,7 +396,10 @@ function resultsView() {
       ${S.askReset === k ? `<button class="btn sm danger solid" data-act="resetok" data-k="${esc(k)}">Conferma</button><button class="btn sm" data-act="resetno">No</button>` :
       `<button class="btn sm ghost" data-act="resetask" data-k="${esc(k)}" title="Cancella questo tentativo e permetti di rifarlo">Nuovo tentativo</button>`}</div></td></tr>`;
     if (open && r.quiz) {
-      h += `<tr><td colspan="8" class="detail"><div class="ans">${r.quiz.questions.map((q, i) => {
+      // domande com'erano quando la persona ha svolto il quiz (copia salvata); per i tentativi vecchi, quelle attuali
+      const QS = r.a.questions && r.a.questions.length ? r.a.questions : r.quiz.questions;
+      const changed = !(r.a.questions && r.a.questions.length) && r.quiz.updatedAt && r.a.startedAt && r.quiz.updatedAt > r.a.startedAt;
+      h += `<tr><td colspan="8" class="detail">${changed ? `<div class="note warn-note"><b>Attenzione:</b> il quiz è stato modificato dopo questa consegna (${fmtD(r.quiz.updatedAt)}). Il punteggio ${r.score}/${r.n} è quello calcolato alla consegna; il dettaglio qui sotto confronta le risposte con le domande <b>attuali</b>, quindi dove una domanda è cambiata può risultare sbagliata anche se non lo era.</div>` : ''}<div class="ans">${QS.map((q, i) => {
         const g = (r.a.answers || {})[i]; const ok = g !== undefined && g === q.correct;
         return `<div><span class="k ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span><span><b>${i + 1}. ${esc(q.text)}</b><br>
           <span class="muted">Risposta data:</span> ${g === undefined ? '<i>nessuna</i>' : esc(q.options[g])}

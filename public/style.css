@@ -654,3 +654,4 @@ header.top::after{opacity:.35}
 .purge-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .purge-row select{flex:1 1 280px;width:auto;min-height:40px;border-radius:10px}
 .purge-ask{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:var(--bad-soft);color:var(--bad)}
+.warn-note{background:var(--warn-soft);color:var(--ink);border-left:4px solid var(--warn);margin-bottom:10px}

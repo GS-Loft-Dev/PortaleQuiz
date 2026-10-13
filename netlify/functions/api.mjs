@@ -122,29 +122,32 @@ function validateQuiz(q) {
 }
 
 /* ---------------- logica del tentativo ---------------- */
+// Domande del tentativo: la copia salvata all'inizio (se il quiz viene modificato dopo, il tentativo resta coerente).
+const qsOf = (a, quiz) => (Array.isArray(a.questions) && a.questions.length ? a.questions : quiz.questions);
 async function finalize(a, quiz, auto) {
-  const now = Date.now();
+  const now = Date.now(), Q = qsOf(a, quiz);
   a.status = "consegnato";
   a.auto = !!auto;
   a.finishedAt = auto ? Math.min(now, a.deadline) : now;
-  a.total = quiz.questions.length;
-  a.score = quiz.questions.reduce((s, q, i) => s + (a.answers[i] === q.correct ? 1 : 0), 0);
+  a.total = Q.length;
+  a.score = Q.reduce((s, q, i) => s + (a.answers[i] === q.correct ? 1 : 0), 0);
   await saveAttempt(a);
   return a;
 }
 // Lo stato restituito al dipendente: mai le risposte corrette, mai le domande successive.
 async function publicState(a, quiz) {
-  if (a.status === "in_corso" && (Date.now() > a.deadline || a.pos >= quiz.questions.length))
-    await finalize(a, quiz, a.pos < quiz.questions.length);
+  const Q = qsOf(a, quiz);
+  if (a.status === "in_corso" && (Date.now() > a.deadline || a.pos >= Q.length))
+    await finalize(a, quiz, a.pos < Q.length);
   if (a.status === "consegnato") return { status: "consegnato", title: quiz.title, auto: a.auto };
   const qi = a.order[a.pos];
-  const q = quiz.questions[qi];
+  const q = Q[qi];
   return {
     status: "in_corso",
     quizId: quiz.id,
     title: quiz.title,
     pos: a.pos,
-    total: quiz.questions.length,
+    total: Q.length,
     remainingMs: Math.max(0, a.deadline - Date.now()),
     question: { text: q.text, options: a.optOrder[qi].map((i) => ({ i, text: q.options[i] })) },
   };
@@ -254,6 +257,8 @@ export default async (req) => {
             order: quiz.shuffleQ ? shuffle(range(n)) : range(n),
             optOrder: quiz.questions.map((x) => (quiz.shuffleO ? shuffle(range(x.options.length)) : range(x.options.length))),
             answers: {}, pos: 0, status: "in_corso", leaves: 0,
+            // copia delle domande com'erano all'inizio del tentativo
+            questions: quiz.questions.map((x) => ({ text: x.text, options: x.options.slice(), correct: x.correct, ...(x.section ? { section: x.section } : {}) })),
           };
           await saveAttempt(a);
         }
@@ -270,10 +275,11 @@ export default async (req) => {
         if (body.pos !== a.pos) return json(await publicState(a, quiz)); // risposta già data o fuori sequenza
         const qi = a.order[a.pos];
         const choice = body.choice;
-        if (!Number.isInteger(choice) || choice < 0 || choice >= quiz.questions[qi].options.length) return fail("Risposta non valida.");
+        const Q = qsOf(a, quiz);
+        if (!Number.isInteger(choice) || choice < 0 || choice >= Q[qi].options.length) return fail("Risposta non valida.");
         a.answers[qi] = choice;
         a.pos += 1;
-        if (a.pos >= quiz.questions.length) await finalize(a, quiz, false);
+        if (a.pos >= Q.length) await finalize(a, quiz, false);
         else await saveAttempt(a);
         return json(await publicState(a, quiz));
       }

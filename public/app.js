@@ -106,9 +106,9 @@ function loginView() {
   const emp = S.loginRole === 'employee';
   return `<div class="login-wrap">
   <div class="login-hero" aria-hidden="true">
-    <p class="eyebrow">GS LOFT · Formazione</p>
+    <p class="eyebrow">GS LOFT · LEARNING</p>
     <p class="hero-t">Quiz &amp; survey<br><span>per il team</span></p>
-    <p class="hero-s">Verifiche a tempo, una domanda alla volta, e survey interne. Tutto in un unico posto.</p>
+    <p class="hero-s">Quiz e Survey interne.<br>Il portale di "Learning" di GS LOFT!</p>
     <div class="stack3d">
       <div class="fc fc3"><span class="fc-k">Survey</span><span class="fc-l"></span><span class="fc-l s"></span></div>
       <div class="fc fc2"><span class="fc-k">Quiz</span><span class="fc-l"></span><span class="fc-l s"></span><span class="fc-l xs"></span></div>

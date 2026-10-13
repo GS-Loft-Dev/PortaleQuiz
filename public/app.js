@@ -1,4 +1,4 @@
-// Quiz Dipendenti GS LOFT — interfaccia (vanilla JS). Tutta la logica sensibile è nel server (/api).
+// Quiz lavoratori GS LOFT — interfaccia (vanilla JS). Tutta la logica sensibile è nel server (/api).
 (function () {
 const app = document.getElementById('app');
 const S = {
@@ -133,7 +133,7 @@ function attemptRows() {
 }
 function adminHome() {
   const rows = attemptRows();
-  let h = `<div class="stack"><div class="row"><div><h2>I tuoi quiz</h2><p class="muted small">Solo i quiz <b>attivi</b> sono visibili ai dipendenti.</p></div><span class="spacer"></span>
+  let h = `<div class="stack"><div class="row"><div><h2>I tuoi quiz</h2><p class="muted small">Solo i quiz <b>attivi</b> sono visibili ai lavoratori.</p></div><span class="spacer"></span>
     <button class="btn primary" data-act="new">+ Nuovo quiz</button></div>`;
   if (!S.quizzes.length) return h + `<div class="empty"><h3>Nessun quiz ancora</h3><p>Crea il primo quiz: scrivi le domande o incollale in blocco, imposta durata e soglia di superamento, poi attivalo.</p><p style="margin-top:14px"><button class="btn primary" data-act="new">Crea il primo quiz</button></p></div></div>`;
   h += '<div class="qlist">';
@@ -161,7 +161,7 @@ function editView() {
   ${d.id && S.attempts.some(a => a.quizId === d.id) ? '<div class="note">Questo quiz è già stato svolto: se cambi domande o risposte corrette, i punteggi già salvati non vengono ricalcolati.</div>' : ''}
   <div class="card stack">
     <label class="f">Titolo<input type="text" id="f-title" data-f="title" value="${esc(d.title)}" placeholder="Es. Procedure di accoglienza clienti"></label>
-    <label class="f">Istruzioni per i dipendenti <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
+    <label class="f">Istruzioni per i lavoratori <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
     <div class="grid3">
       <label class="f">Durata (minuti)<input type="number" id="f-dur" min="1" max="300" data-f="duration" value="${d.duration}"></label>
       <label class="f">Soglia di superamento (%)<input type="number" id="f-pass" min="0" max="100" data-f="passPct" value="${d.passPct}"></label>
@@ -170,7 +170,7 @@ function editView() {
         <label class="check"><input type="checkbox" id="f-so" data-f="shuffleO" ${d.shuffleO ? 'checked' : ''}>Risposte in ordine casuale</label>
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai dipendenti)</label>
+    <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai lavoratori)</label>
   </div>
   <div class="card stack"><div class="row"><h3>Domande</h3><span class="chip acc">${d.questions.length}</span><span class="spacer"></span><span class="hint">Seleziona il pallino della risposta corretta</span></div>`;
   d.questions.forEach((q, qi) => {
@@ -570,7 +570,7 @@ const svName = r => r.name || 'Senza nome';
 const svQ = (def, id) => def.sections.flatMap(s => s.questions).find(q => q.id === id) || {};
 function svToolName(def, it) { const q = svQ(def, 'q4'); return it.q4 === q.other ? (it.q4__altro || 'Altro') : (it.q4 || '—'); }
 function adminSurveys() {
-  let h = `<div class="stack"><div><h2>Survey</h2><p class="muted small">Le survey <b>attive</b> compaiono a tutte le persone autorizzate nella scheda Accessi, insieme ai quiz. Ognuno può aggiornare le proprie risposte finché la survey resta attiva.</p></div><div class="qlist">`;
+  let h = `<div class="stack"><div><h2>Survey</h2><p class="muted small">Le survey <b>attive</b> compaiono a tutte le persone autorizzate nella scheda Accessi, insieme ai quiz.<br>Ognuno può aggiornare le proprie risposte finché la survey resta attiva.</p></div><div class="qlist">`;
   for (const s of S.surveys) {
     const d = s.def;
     h += `<div class="card stack"><div class="qitem" style="padding:0;border:0"><div class="stack" style="gap:8px;min-width:0">

@@ -8,7 +8,7 @@ const S = {
   resFilter: 'all', openDetail: null, askDel: null, askReset: null, askRm: null,
   saving: false, loginRole: 'employee', loginErr: null, accErr: null,
   // survey
-  surveys: [], responses: [], sv: null, svPage: 'list', svSel: null, svOpen: null, svAskDel: null, svNames: null,
+  surveys: [], responses: [], sv: null, svPage: 'list', svSel: null, svOpen: null, svAskDel: null, svNames: null, svEdit: null, svEditErr: null, svAskReset: false, locked: {},
 };
 let timerH = null;
 
@@ -50,7 +50,7 @@ async function boot() {
 async function loadAll() {
   if (S.role === 'admin') {
     const [q, p, r, sv, sr] = await Promise.all([api('admin/quizzes'), api('admin/people'), api('admin/results'), api('admin/surveys'), api('admin/survey-responses')]);
-    S.quizzes = q.quizzes; S.people = p.people; S.attempts = r.attempts; S.surveys = sv.surveys; S.responses = sr.responses;
+    S.quizzes = q.quizzes; S.people = p.people; S.attempts = r.attempts; S.surveys = sv.surveys; S.locked = sv.locked || {}; S.responses = sr.responses;
   } else if (S.role === 'employee') {
     const [q, sv] = await Promise.all([api('quizzes'), api('surveys')]);
     S.quizzes = q.quizzes; S.surveys = sv.surveys;
@@ -72,7 +72,7 @@ function render() {
     if (S.view === 'edit') h = editView();
     else if (S.tab === 'results') h = resultsView();
     else if (S.tab === 'access') h = accessView();
-    else if (S.tab === 'survey') h = S.svPage === 'responses' ? responsesView() : adminSurveys();
+    else if (S.tab === 'survey') h = S.svPage === 'responses' ? responsesView() : S.svPage === 'edit' ? svEditView() : adminSurveys();
     else h = adminHome();
   } else h = employeeHome();
   // ridisegnare la pagina toglie il focus: lo rimettiamo sul campo in cui si stava scrivendo
@@ -81,7 +81,7 @@ function render() {
   if (focusId) { const el = document.getElementById(focusId); if (el) el.focus({ preventScroll: true }); }
 }
 function header() {
-  const tabs = S.role === 'admin' && !['edit', 'intro', 'done', 'run', 'survey', 'svdone'].includes(S.view) ? `<nav class="tabs">
+  const tabs = S.role === 'admin' && !['edit', 'intro', 'done', 'run', 'survey', 'svdone'].includes(S.view) && S.svPage !== 'edit' ? `<nav class="tabs">
     <button class="tab" data-act="tab" data-v="quiz" aria-current="${S.tab === 'quiz'}">Quiz</button>
     <button class="tab" data-act="tab" data-v="survey" aria-current="${S.tab === 'survey'}">Survey</button>
     <button class="tab" data-act="tab" data-v="results" aria-current="${S.tab === 'results'}">Risultati</button>
@@ -350,7 +350,6 @@ function employeeHome() {
 function introView() {
   const q = S.quizzes.find(x => x.id === S.sel); if (!q) return '';
   const n = q.count ?? q.questions.length;
-  const prevName = S.quizzes.find(x => x.name)?.name || '';
   return `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="home">← Indietro</button>${S.preview ? '<span class="chip acc">Anteprima: nessun dato salvato</span>' : ''}</div>
   <div class="card stack"><h2>${esc(q.title)}</h2>${q.desc ? `<p>${esc(q.desc)}</p>` : ''}
     <ol class="rules">
@@ -360,8 +359,7 @@ function introView() {
       <li>Allo scadere del tempo il quiz viene consegnato automaticamente, con le risposte date fino a quel momento.</li>
       <li>Resta su questa pagina: le uscite dalla pagina vengono registrate.</li>
     </ol>
-    <label class="f">Nome e cognome<input type="text" id="nm" value="${esc(S.preview ? 'Anteprima' : prevName)}" placeholder="Es. Maria Rossi" autocomplete="name"></label>
-    <div id="nmerr" class="err" hidden>Scrivi nome e cognome per iniziare.</div>
+    <p class="small muted">${S.preview ? 'Anteprima del responsabile.' : `Il quiz viene registrato a nome di <b>${esc(S.email)}</b>.`}</p>
     <div class="row"><span class="spacer"></span><button class="btn primary" data-act="start" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Avvio…' : 'Inizia il quiz'}</button></div>
   </div></div>`;
 }
@@ -385,7 +383,7 @@ function doneView() {
 }
 
 /* ---------- survey ---------- */
-// Le risposte hanno questa forma: { main: {q1:…, q3:…}, groups: { tools: [ {q4:…}, {q4:…} ] }, ack: true }
+// Le risposte hanno questa forma: { main: {q2:…, q3:…}, groups: { tools: [ {q4:…}, {q4:…} ] }, ack: true }
 const asList = v => Array.isArray(v) ? v : (v == null || v === '' ? [] : [v]);
 const svMatch = (c, scope) => asList(scope && scope[c.q]).some(x => c.in.includes(x));
 const svOpts = (q, names) => { const o = q.optionsFrom === 'names' ? names : (q.options || []); return q.other && !o.includes(q.other) ? [...o, q.other] : o; };
@@ -458,18 +456,18 @@ function surveyView() {
   <div class="card stack svhead"><div><h2>${esc(def.title)}</h2><p class="svsub">${esc(def.subtitle)}</p></div>
     <p class="muted small">${esc(def.estimate)}</p>${def.intro.map(p => `<p>${esc(p)}</p>`).join('')}
     <div class="note"><b>Importante:</b> ${esc(def.warning)}</div>
-    <p class="small muted">Le domande con <span class="req">*</span> sono obbligatorie. ${sv.preview ? '' : 'Le risposte restano salvate come bozza su questo dispositivo finché non le invii.'}</p></div>`;
+    <p class="small muted">${sv.preview ? 'Anteprima del responsabile.' : `Stai compilando come <b>${esc(S.email)}</b>: le risposte vengono registrate con questa email.`} Le domande con <span class="req">*</span> sono obbligatorie. ${sv.preview ? '' : 'Le risposte restano salvate come bozza su questo dispositivo finché non le invii.'}</p></div>`;
   for (const sec of def.sections) {
     if (sec.repeat) {
       if (sec.showIf && !svMatch(sec.showIf, main)) {
         h += `<section class="svsec"><h3>${esc(sec.title)}</h3>${sec.hiddenIf && svMatch(sec.hiddenIf, main) ? `<div class="note">${esc(sec.hiddenNote)}</div>`
-          : `<p class="muted small">Rispondi alla domanda 3 per vedere questa sezione.</p>`}</section>`;
+          : `<p class="muted small">Rispondi alla domanda sull'uso dell'IA per vedere questa sezione.</p>`}</section>`;
         continue;
       }
       const items = sv.ans.groups[sec.id];
       h += `<section class="svsec stack"><div><h3>${esc(sec.title)}</h3></div><div class="note">${esc(sec.note)}</div>`;
       items.forEach((it, i) => {
-        const tool = it.q4 === sec.questions[0].other ? it.q4__altro : it.q4;
+        const tool = it.q4 === svQ(def, 'q4').other ? it.q4__altro : it.q4;
         h += `<div class="card stack svitem" id="sv-item-${sec.id}-${i}"><div class="row svitem-h"><span class="svbadge">${esc(sec.repeat.item)} ${i + 1}</span>
           <b class="svtool">${esc(tool || '')}</b><span class="spacer"></span>
           ${items.length > 1 ? `<button class="btn sm ghost danger" data-act="svrm" data-g="${sec.id}" data-i="${i}">Rimuovi scheda</button>` : ''}</div>
@@ -569,26 +567,115 @@ function svInput(t) { // testo: aggiorna senza ridisegnare, così il cursore res
 
 /* ----- responsabile: survey ----- */
 const svName = r => r.name || 'Senza nome';
-function svToolName(def, it) { const q = def.sections.find(s => s.repeat).questions[0]; return it.q4 === q.other ? (it.q4__altro || 'Altro') : (it.q4 || '—'); }
+const svQ = (def, id) => def.sections.flatMap(s => s.questions).find(q => q.id === id) || {};
+function svToolName(def, it) { const q = svQ(def, 'q4'); return it.q4 === q.other ? (it.q4__altro || 'Altro') : (it.q4 || '—'); }
 function adminSurveys() {
   let h = `<div class="stack"><div><h2>Survey</h2><p class="muted small">Le survey <b>attive</b> compaiono a tutte le persone autorizzate nella scheda Accessi, insieme ai quiz. Ognuno può aggiornare le proprie risposte finché la survey resta attiva.</p></div><div class="qlist">`;
   for (const s of S.surveys) {
-    const d = s.def, editing = S.svNames === d.id;
+    const d = s.def;
     h += `<div class="card stack"><div class="qitem" style="padding:0;border:0"><div class="stack" style="gap:8px;min-width:0">
-      <div class="row"><h3>${esc(d.title)}</h3>${s.active ? '<span class="chip ok">Attiva</span>' : '<span class="chip">Bozza</span>'}</div>
+      <div class="row"><h3>${esc(d.title)}</h3>${s.active ? '<span class="chip ok">Attiva</span>' : '<span class="chip">Bozza</span>'}${s.edited ? '<span class="chip acc">Domande modificate</span>' : ''}</div>
       <p class="muted small">${esc(d.subtitle)}</p>
-      <div class="meta"><span>${s.count} ${s.count === 1 ? 'risposta' : 'risposte'}</span><span>${S.people.length} persone autorizzate</span><span>Elenco nomi: ${s.names.length || 'vuoto'}</span></div></div>
+      <div class="meta"><span>${s.count} ${s.count === 1 ? 'risposta' : 'risposte'}</span><span>${S.people.length} ${S.people.length === 1 ? 'persona autorizzata' : 'persone autorizzate'}</span></div></div>
       <div class="actions"><button class="btn sm" data-act="svtoggle" data-id="${d.id}">${s.active ? 'Disattiva' : 'Attiva'}</button>
       <button class="btn sm" data-act="svprev" data-id="${d.id}">Anteprima</button>
-      <button class="btn sm" data-act="svnames" data-id="${d.id}">Elenco nomi</button>
+      <button class="btn sm" data-act="svedit" data-id="${d.id}">Modifica domande</button>
       <button class="btn sm primary" data-act="svres" data-id="${d.id}">Risposte</button></div></div>
-      ${editing ? `<div class="stack svnames"><label class="f">Nomi di dipendenti e collaboratori <span class="hint">uno per riga · compaiono nella domanda 1</span>
-        <textarea id="svnames-in" rows="8" placeholder="Maria Rossi&#10;Luca Bianchi">${esc(s.names.join('\n'))}</textarea></label>
-        <p class="small muted">Se l'elenco è vuoto, ognuno scrive a mano il proprio nome. Chi non si trova in elenco può comunque scriverlo.</p>
-        <div class="row"><span class="spacer"></span><button class="btn" data-act="svnamesno">Annulla</button><button class="btn primary" data-act="svnamesok" data-id="${d.id}">Salva elenco</button></div></div>` : ''}</div>`;
+      </div>`;
   }
   return h + '</div></div>';
 }
+/* ----- responsabile: modifica delle domande ----- */
+const SE_TYPES = [['single', 'Una sola risposta'], ['multi', 'Più risposte'], ['select', 'Menu a tendina'], ['text', 'Testo breve'], ['textarea', 'Testo lungo']];
+const seGet = (o, path) => path.split('.').reduce((x, k) => x == null ? x : x[k], o);
+function seSet(o, path, v) { const ks = path.split('.'), last = ks.pop(); ks.reduce((x, k) => x[k], o)[last] = v; }
+const seParas = a => (a || []).join('\n\n');
+function seNumbers(def) { const m = {}; let n = 1; for (const s of def.sections) for (const q of s.questions) if (!q.sub && !q.showIf) m[q.id] = n++; return m; }
+function openSvEdit(id) {
+  const s = S.surveys.find(x => x.def.id === id);
+  S.svEdit = JSON.parse(JSON.stringify(s.def)); S.svSel = id; S.svEditErr = null; S.svAskReset = false; S.svPage = 'edit'; render(); window.scrollTo(0, 0);
+}
+function seQuestion(q, si, qi, sec, nums) {
+  const p = `sections.${si}.questions.${qi}`, lock = S.locked[q.id], choice = ['single', 'multi', 'select'].includes(q.type);
+  const all = S.svEdit.sections.flatMap(x => x.questions), parent = q.showIf && all.find(x => x.id === q.showIf.q);
+  const tag = nums[q.id] ? `Domanda ${nums[q.id]}` : 'Sotto-domanda';
+  let h = `<div class="qedit stack seq" style="gap:10px" id="seq-${q.id}"><div class="row"><span class="num">${tag}</span>${lock ? '<span class="chip">Necessaria</span>' : ''}<span class="spacer"></span>
+    <button class="btn sm ghost" data-act="seup" data-s="${si}" data-i="${qi}" ${qi === 0 ? 'disabled' : ''} aria-label="Sposta su">↑</button>
+    <button class="btn sm ghost" data-act="sedown" data-s="${si}" data-i="${qi}" ${qi === sec.questions.length - 1 ? 'disabled' : ''} aria-label="Sposta giù">↓</button>
+    <button class="btn sm ghost danger" data-act="sedel" data-s="${si}" data-i="${qi}" ${lock ? 'disabled title="Domanda necessaria al portale"' : ''}>Elimina</button></div>
+    ${lock ? `<p class="small muted">${esc(lock)}</p>` : ''}
+    ${parent ? `<div class="note small">Compare solo se alla ${nums[parent.id] ? 'domanda ' + nums[parent.id] : '“' + esc(parent.short) + '”'} si risponde: ${q.showIf.in.map(esc).join(' · ')}</div>` : ''}
+    <label class="f">Testo della domanda<textarea id="se-${q.id}-label" data-se="${p}.label" rows="2">${esc(q.label)}</textarea></label>
+    <div class="grid3">
+      <label class="f">Tipo di risposta<select id="se-${q.id}-type" data-se="${p}.type" data-sek="type" ${lock ? 'disabled' : ''}>${SE_TYPES.map(([v, l]) => `<option value="${v}" ${q.type === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="f">Nome breve <span class="hint">per risultati e CSV</span><input type="text" id="se-${q.id}-short" data-se="${p}.short" value="${esc(q.short)}" maxlength="60"></label>
+      <div class="f" style="justify-content:flex-end;gap:6px">
+        <label class="check"><input type="checkbox" id="se-${q.id}-req" data-se="${p}.required" data-sek="bool" ${q.required ? 'checked' : ''} ${lock ? 'disabled' : ''}>Obbligatoria</label>
+        <label class="check"><input type="checkbox" id="se-${q.id}-sub" data-se="${p}.sub" data-sek="bool" ${q.sub || q.showIf ? 'checked' : ''} ${q.showIf || lock ? 'disabled' : ''}>Senza numero (sotto-domanda)</label></div>
+    </div>
+    <label class="f">Nota sotto la domanda <span class="hint">facoltativa</span><input type="text" id="se-${q.id}-help" data-se="${p}.help" value="${esc(q.help)}" maxlength="600"></label>`;
+  if (choice) {
+    h += `<label class="f">Risposte possibili <span class="hint">una per riga</span><textarea id="se-${q.id}-opts" data-se="${p}.options" data-sek="lines" rows="${Math.min(12, (q.options || []).length + 1)}" ${q.id === 'q3' ? 'disabled' : ''}>${esc((q.options || []).join('\n'))}</textarea></label>`;
+    if (q.type === 'multi' && (q.options || []).length) h += `<div class="f"><span>Risposte che escludono le altre <span class="hint">es. “No”, “Non so”: se scelte, tolgono le altre spunte</span></span><div class="row">${q.options.map((o, k) =>
+      `<label class="check small"><input type="checkbox" id="se-${q.id}-ex${k}" data-se="${p}" data-sek="ex" value="${esc(o)}" ${(q.exclusive || []).includes(o) ? 'checked' : ''}>${esc(o)}</label>`).join('')}</div></div>`;
+    if (q.id !== 'q3') h += `<div class="row"><label class="check"><input type="checkbox" id="se-${q.id}-oth" data-se="${p}" data-sek="other" ${q.other ? 'checked' : ''} ${q.id === 'q4' ? 'disabled' : ''}>Aggiungi una scelta “Altro” con campo da scrivere</label>
+      ${q.other ? `<input type="text" id="se-${q.id}-othl" data-se="${p}.other" value="${esc(q.other)}" maxlength="100" style="width:auto;flex:1;min-width:200px" aria-label="Testo della scelta Altro">` : ''}</div>`;
+  }
+  return h + '</div>';
+}
+function svEditView() {
+  const d = S.svEdit, s = S.surveys.find(x => x.def.id === S.svSel), nums = seNumbers(d);
+  let h = `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="secancel">← Torna alle survey</button></div>
+  <h2>Modifica domande</h2>
+  ${s && s.count ? `<div class="note">Questa survey ha già ${s.count} ${s.count === 1 ? 'risposta' : 'risposte'}: le risposte già inviate restano come sono. Se cambi il testo di una scelta, nelle vecchie risposte resta il testo precedente.</div>` : ''}
+  <div class="card stack"><h3>Introduzione</h3>
+    <label class="f">Titolo<input type="text" id="se-title" data-se="title" value="${esc(d.title)}" maxlength="120"></label>
+    <label class="f">Sottotitolo<input type="text" id="se-subtitle" data-se="subtitle" value="${esc(d.subtitle)}" maxlength="300"></label>
+    <label class="f">Tempo di compilazione<input type="text" id="se-estimate" data-se="estimate" value="${esc(d.estimate)}" maxlength="200"></label>
+    <label class="f">Testo introduttivo <span class="hint">una riga vuota tra un paragrafo e l'altro</span><textarea id="se-intro" data-se="intro" data-sek="paras" rows="6">${esc(seParas(d.intro))}</textarea></label>
+    <label class="f">Avviso “Importante”<textarea id="se-warning" data-se="warning" rows="3">${esc(d.warning)}</textarea></label></div>`;
+  d.sections.forEach((sec, si) => {
+    h += `<div class="card stack"><div class="row"><h3>Sezione</h3><span class="chip acc">${sec.questions.length} domande</span>${sec.repeat ? '<span class="chip">si ripete per ogni strumento</span>' : ''}</div>
+      <label class="f">Titolo della sezione<input type="text" id="se-sec${si}-title" data-se="sections.${si}.title" value="${esc(sec.title)}" maxlength="200"></label>
+      ${sec.note != null ? `<label class="f">Istruzioni della sezione<textarea id="se-sec${si}-note" data-se="sections.${si}.note" rows="2">${esc(sec.note)}</textarea></label>` : ''}
+      ${sec.showIf ? '<p class="small muted">Questa sezione compare solo a chi usa o ha provato strumenti di IA (domanda sull’uso dell’IA).</p>' : ''}
+      ${sec.questions.map((q, qi) => seQuestion(q, si, qi, sec, nums)).join('')}
+      <div class="row"><button class="btn" data-act="seadd" data-s="${si}">+ Aggiungi domanda in questa sezione</button></div></div>`;
+  });
+  const pr = d.privacy;
+  h += `<div class="card stack"><h3>Informativa privacy</h3>
+    <label class="f">Titolo<input type="text" id="se-pr-title" data-se="privacy.title" value="${esc(pr.title)}" maxlength="200"></label>
+    <label class="f">Testo <span class="hint">una riga vuota tra un paragrafo e l'altro</span><textarea id="se-pr-text" data-se="privacy.paragraphs" data-sek="paras" rows="12">${esc(seParas(pr.paragraphs))}</textarea></label>
+    <label class="f">Frase da spuntare (obbligatoria)<input type="text" id="se-pr-ack" data-se="privacy.ack" value="${esc(pr.ack)}" maxlength="500"></label>
+    <label class="f">Nota sotto la spunta<input type="text" id="se-pr-note" data-se="privacy.ackNote" value="${esc(pr.ackNote)}" maxlength="500"></label></div>
+  ${S.svEditErr ? `<div class="err" role="alert">${esc(S.svEditErr)}</div>` : ''}
+  <div class="savebar row">${s && s.edited ? (S.svAskReset ? `<span class="small muted">Tornare alle domande originali? Le modifiche si perdono.</span><button class="btn sm danger solid" data-act="seresetok">Ripristina</button><button class="btn sm" data-act="seresetno">No</button>`
+      : '<button class="btn ghost danger" data-act="sereset">Ripristina originale</button>') : ''}<span class="spacer"></span>
+    <button class="btn" data-act="secancel">Annulla</button><button class="btn primary" data-act="sesave" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Salvataggio…' : 'Salva domande'}</button></div></div>`;
+  return h;
+}
+function seField(t) { // aggiorna la bozza dal campo modificato; true se serve ridisegnare
+  const d = S.svEdit, path = t.dataset.se, k = t.dataset.sek;
+  if (k === 'bool') { seSet(d, path, t.checked); return true; }
+  if (k === 'type') { const q = seGet(d, path.replace(/\.type$/, '')); q.type = t.value;
+    if (['single', 'multi', 'select'].includes(q.type) && !(q.options || []).length) q.options = ['', ''];
+    if (q.type !== 'multi') delete q.exclusive; return true; }
+  if (k === 'ex') { const q = seGet(d, path), ex = new Set(q.exclusive || []); t.checked ? ex.add(t.value) : ex.delete(t.value); q.exclusive = [...ex]; return false; }
+  if (k === 'other') { const q = seGet(d, path); if (t.checked) { q.other = 'Altro'; q.otherPlaceholder = 'Specifica'; } else delete q.other; return true; }
+  if (k === 'lines') { seSet(d, path, t.value.split('\n').map(x => x.trim()).filter(Boolean)); return false; }
+  if (k === 'paras') { seSet(d, path, t.value.split(/\n\s*\n/).map(x => x.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean)); return false; }
+  seSet(d, path, t.value); return false;
+}
+async function saveSvEdit() {
+  const d = S.svEdit; S.svEditErr = null;
+  for (const sec of d.sections) for (const q of sec.questions) if (!String(q.label || '').trim()) { S.svEditErr = 'C\'è una domanda senza testo: scrivila o eliminala.'; render(); document.getElementById('se-' + q.id + '-label')?.focus(); return; }
+  S.saving = true; render();
+  try {
+    await api('admin/survey-def', { method: 'PUT', body: { id: S.svSel, def: d } });
+    S.saving = false; S.svEdit = null; S.svPage = 'list'; toast('Domande salvate'); await refresh(); window.scrollTo(0, 0);
+  } catch (e) { S.saving = false; if (e.message !== '401') { S.svEditErr = e.message; render(); } }
+}
+
 function svFormat(q, ans) {
   const v = asList(ans[q.id]); if (!v.length) return '';
   const alt = ans[q.id + '__altro'];
@@ -600,7 +687,7 @@ function svDetail(def, r) {
   for (const sec of def.sections) {
     if (!sec.repeat) { h += `<h4>${esc(sec.title)}</h4><div class="svans">${block(sec.questions, r.answers.main)}</div>`; continue; }
     const items = r.answers.groups[sec.id] || [];
-    h += `<h4>${esc(sec.title)}</h4>` + (items.length ? items.map((it, i) => `<div class="svans-item"><b>${esc(sec.repeat.item)} ${i + 1}: ${esc(svToolName(def, it))}</b><div class="svans">${block(sec.questions.slice(1), it)}</div></div>`).join('') : '<p class="muted small">Nessuno strumento indicato.</p>');
+    h += `<h4>${esc(sec.title)}</h4>` + (items.length ? items.map((it, i) => `<div class="svans-item"><b>${esc(sec.repeat.item)} ${i + 1}: ${esc(svToolName(def, it))}</b><div class="svans">${block(sec.questions.filter(q => q.id !== 'q4'), it)}</div></div>`).join('') : '<p class="muted small">Nessuno strumento indicato.</p>');
   }
   return h;
 }
@@ -642,8 +729,8 @@ function responsesView() {
 }
 function exportSurveyCsv() {
   const s = S.surveys.find(x => x.def.id === S.svSel), def = s.def;
-  const mainQ = def.sections.filter(x => !x.repeat).flatMap(x => x.questions), sec = def.sections.find(x => x.repeat), toolQ = sec.questions;
-  const lastQ = mainQ.filter(q => (q.n || 0) >= 17), firstQ = mainQ.filter(q => !((q.n || 0) >= 17));
+  const si = def.sections.findIndex(x => x.repeat), sec = def.sections[si], toolQ = sec.questions;
+  const firstQ = [{ id: '' }, ...def.sections.slice(0, si).flatMap(x => x.questions).filter(q => q.id !== 'q1')], lastQ = def.sections.slice(si + 1).flatMap(x => x.questions);
   const cell = v => '"' + String(Array.isArray(v) ? v.join(' | ') : v ?? '').replace(/"/g, '""') + '"';
   const head = ['Nome', 'Email', ...firstQ.slice(1).map(q => q.short), 'N. strumento', ...toolQ.map(q => q.short), ...lastQ.map(q => q.short), 'Inviata', 'Modifiche'];
   const lines = [head.map(cell).join(';')];
@@ -684,11 +771,9 @@ async function onExpire() {
   catch (e) { if (e.message !== '401') { toast('Connessione assente: il quiz verrà consegnato appena possibile.'); S.run.expiring = false; } }
 }
 async function startQuiz() {
-  const name = (document.getElementById('nm')?.value || '').trim();
-  if (!name) { document.getElementById('nmerr').hidden = false; return; }
   if (S.preview) { applyState(Preview.start(S.quizzes.find(x => x.id === S.sel))); return; }
   S.saving = true; render();
-  try { const st = await api('start', { method: 'POST', body: { quizId: S.sel, name } }); S.saving = false; applyState(st); }
+  try { const st = await api('start', { method: 'POST', body: { quizId: S.sel } }); S.saving = false; applyState(st); }
   catch (e) { S.saving = false; render(); if (e.message !== '401') toast(e.message); }
 }
 async function confirmAnswer() {
@@ -750,10 +835,6 @@ app.addEventListener('click', async e => {
       case 'svrm': S.sv.ans.groups[b.dataset.g].splice(+b.dataset.i, 1); S.sv.errs = {}; S.sv.errList = []; svDraftSave(); render(); toast('Scheda rimossa'); break;
       case 'svsend': submitSurvey(); break;
       case 'svtoggle': { const s = S.surveys.find(x => x.def.id === b.dataset.id); await api('admin/surveys', { method: 'PATCH', body: { id: s.def.id, active: !s.active } }); toast(s.active ? 'Survey disattivata' : 'Survey attivata: ora è visibile alle persone autorizzate'); await refresh(); break; }
-      case 'svnames': S.svNames = S.svNames === b.dataset.id ? null : b.dataset.id; render(); break;
-      case 'svnamesno': S.svNames = null; render(); break;
-      case 'svnamesok': { const names = document.getElementById('svnames-in').value.split('\n'); const r = await api('admin/surveys', { method: 'PATCH', body: { id: b.dataset.id, names } });
-        S.svNames = null; toast(r.names.length ? `Elenco salvato: ${r.names.length} nomi` : 'Elenco svuotato: ognuno scriverà il proprio nome'); await refresh(); break; }
       case 'svres': S.svSel = b.dataset.id; S.svPage = 'responses'; S.svOpen = null; render(); window.scrollTo(0, 0); await refresh(); break;
       case 'svlist': S.svPage = 'list'; render(); break;
       case 'svdetail': S.svOpen = S.svOpen === b.dataset.k ? null : b.dataset.k; render(); break;
@@ -761,6 +842,22 @@ app.addEventListener('click', async e => {
       case 'svdelno': S.svAskDel = null; render(); break;
       case 'svdelok': S.svAskDel = null; await api('admin/survey-response?key=' + encodeURIComponent(b.dataset.k), { method: 'DELETE' }); toast('Risposta eliminata'); await refresh(); break;
       case 'svcsv': exportSurveyCsv(); break;
+      // modifica delle domande
+      case 'svedit': openSvEdit(b.dataset.id); break;
+      case 'secancel': S.svEdit = null; S.svPage = 'list'; render(); window.scrollTo(0, 0); break;
+      case 'sesave': saveSvEdit(); break;
+      case 'seadd': { const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        S.svEdit.sections[+b.dataset.s].questions.push({ id, label: '', short: '', type: 'single', options: ['', ''], required: false });
+        render(); const el = document.getElementById('se-' + id + '-label'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus({ preventScroll: true }); } break; }
+      case 'sedel': { const qs = S.svEdit.sections[+b.dataset.s].questions, q = qs[+b.dataset.i];
+        const kids = S.svEdit.sections.flatMap(x => x.questions).filter(x => x.showIf && x.showIf.q === q.id);
+        qs.splice(+b.dataset.i, 1); for (const k of kids) { const sq = S.svEdit.sections.find(x => x.questions.includes(k)).questions; sq.splice(sq.indexOf(k), 1); }
+        render(); toast(kids.length ? 'Domanda eliminata, insieme alla sua sotto-domanda' : 'Domanda eliminata'); break; }
+      case 'seup': case 'sedown': { const qs = S.svEdit.sections[+b.dataset.s].questions, i = +b.dataset.i, j = a === 'seup' ? i - 1 : i + 1;
+        [qs[i], qs[j]] = [qs[j], qs[i]]; render(); break; }
+      case 'sereset': S.svAskReset = true; render(); break;
+      case 'seresetno': S.svAskReset = false; render(); break;
+      case 'seresetok': await api('admin/survey-def?id=' + encodeURIComponent(S.svSel), { method: 'DELETE' }); S.svAskReset = false; S.svEdit = null; S.svPage = 'list'; toast('Ripristinate le domande originali'); await refresh(); break;
       case 'reload': await refresh(); toast('Aggiornato'); break;
       case 'new': openEditor(null); break;
       case 'edit': openEditor(b.dataset.id); break;
@@ -806,6 +903,7 @@ app.addEventListener('click', async e => {
 app.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.svk) { if (t.dataset.svk === 'text' || t.dataset.svk === 'other') svInput(t); return; }
+  if (t.dataset.se && S.svEdit) { if (!['bool', 'type', 'ex', 'other'].includes(t.dataset.sek)) seField(t); return; }
   const f = t.dataset.f; if (!f) return;
   if (f === 'resFilter') { S.resFilter = t.value; S.openDetail = null; render(); return; }
   const d = S.draft; if (!d) return;
@@ -819,6 +917,10 @@ app.addEventListener('input', e => {
 app.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.svk && t.dataset.svk !== 'text' && t.dataset.svk !== 'other') { svChange(t); return; }
+  if (t.dataset.se && S.svEdit) { // caselle e menu ridisegnano; l'elenco risposte aggiorna le "esclusive" quando si esce dal campo
+    if (seField(t) || (t.dataset.sek === 'lines' && seGet(S.svEdit, t.dataset.se.replace(/\.options$/, '')).type === 'multi')) render();
+    return;
+  }
   if (t.dataset.f === 'correct' && S.draft) S.draft.questions[+t.dataset.q].correct = +t.dataset.o;
 });
 window.addEventListener('beforeunload', e => { if (S.view === 'run' && !S.preview) { e.preventDefault(); e.returnValue = ''; } });

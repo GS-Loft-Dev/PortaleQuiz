@@ -38,9 +38,11 @@ Piattaforma per creare quiz a tempo per i dipendenti (una domanda alla volta, se
 
 ## Survey
 
+Nessuno scrive il proprio nome: quiz e survey vengono registrati con l'email usata per entrare, e il nome nei risultati è ricavato da lì (mario.rossi@gsloft.it → Mario Rossi).
+
 Scheda **Survey** dell'area responsabile. Contiene la survey interna **AI @ GS LOFT** (mappatura degli strumenti di IA per l'AI Act).
 
-1. **Elenco nomi**: incolla i nomi di dipendenti e collaboratori, uno per riga. Compaiono nella domanda 1. Se l'elenco è vuoto, ognuno scrive il proprio nome.
+1. **Modifica domande**: testi, risposte possibili, tipo di risposta, obbligatorietà, scelta “Altro”, ordine, nuove domande, introduzione e informativa. Le domande sull'uso dell'IA e sullo strumento non si possono eliminare perché servono al portale. “Ripristina originale” torna alla versione iniziale.
 2. **Anteprima**: prova la survey come la vede un dipendente, senza salvare nulla.
 3. **Attiva**: la survey compare a tutte le email autorizzate in **Accessi**, insieme ai quiz.
 4. **Risposte**: riepilogo degli strumenti indicati (persone, account personali, dati di clienti e sanitari), dettaglio di ogni risposta, chi non ha ancora risposto, export CSV con una riga per strumento.
@@ -51,7 +53,7 @@ Come funziona per chi compila:
 - la bozza resta salvata nel browser finché non si invia; dopo l'invio le risposte si possono aggiornare finché la survey è attiva;
 - le domande obbligatorie e la presa visione dell'informativa sono controllate anche dal server.
 
-Le domande si modificano in `netlify/lib/surveys.mjs` (testo, opzioni, obbligatorietà). Per una nuova survey basta aggiungere un oggetto all'elenco `SURVEYS`.
+La versione iniziale delle domande è in `netlify/lib/surveys.mjs`; quella modificata dal portale è salvata in Netlify Blobs. Per una survey nuova basta aggiungere un oggetto all'elenco `SURVEYS`.
 
 Formato per incollare le domande dei quiz:
 

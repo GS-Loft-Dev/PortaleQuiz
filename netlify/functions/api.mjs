@@ -2,7 +2,7 @@
 // Dati salvati in Netlify Blobs (store "quiz-gsloft"), sessione in cookie HttpOnly firmato.
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
-import { SURVEYS, getSurveyDef, cleanAnswers, respondentName } from "../lib/surveys.mjs";
+import { SURVEYS, getSurveyDef, cleanAnswers, nameFromEmail, validateDef, LOCKED } from "../lib/surveys.mjs";
 
 export const config = { path: "/api/*" };
 
@@ -86,6 +86,12 @@ const saveAttempt = (a) => db().setJSON(attemptKey(a.quizId, a.email), a);
 async function getSurveyConfig(id) {
   const c = await db().get("survey-config/" + id, { type: "json" });
   return { active: !!c?.active, names: Array.isArray(c?.names) ? c.names : [], updatedAt: c?.updatedAt || null };
+}
+// Domande della survey: quelle modificate dal responsabile se esistono, altrimenti l'originale nel codice.
+async function getDef(id) {
+  const base = getSurveyDef(id);
+  if (!base) return null;
+  return (await db().get("survey-defs/" + id, { type: "json" })) || base;
 }
 const responseKey = (surveyId, email) => `survey-responses/${surveyId}/${emailKey(email)}`;
 async function listResponses(prefix = "survey-responses/") {
@@ -207,16 +213,17 @@ export default async (req) => {
       /* survey: elenco, apertura, invio (le risposte si possono aggiornare finché la survey è attiva) */
       if (route === "surveys" && method === "GET") {
         const out = [];
-        for (const def of SURVEYS) {
-          const cfg = await getSurveyConfig(def.id);
+        for (const base of SURVEYS) {
+          const cfg = await getSurveyConfig(base.id);
           if (!cfg.active) continue;
+          const def = await getDef(base.id);
           const r = await db().get(responseKey(def.id, s.email), { type: "json" });
           out.push({ id: def.id, title: def.title, subtitle: def.subtitle, estimate: def.estimate, submittedAt: r?.updatedAt || null });
         }
         return json({ surveys: out });
       }
       if (route === "survey") {
-        const def = getSurveyDef(body.id || url.searchParams.get("id"));
+        const def = await getDef(body.id || url.searchParams.get("id"));
         const cfg = def && (await getSurveyConfig(def.id));
         if (!def || !cfg.active) return fail("Survey non disponibile.", 404);
         const key = responseKey(def.id, s.email);
@@ -226,7 +233,7 @@ export default async (req) => {
           const { answers, errors } = cleanAnswers(def, body.answers, cfg.names);
           if (errors.length) return fail("Risposte incomplete: " + errors.slice(0, 3).join(" "), 400);
           const now = Date.now();
-          const rec = { surveyId: def.id, email: s.email, name: respondentName(def, answers).slice(0, 120), answers,
+          const rec = { surveyId: def.id, email: s.email, name: nameFromEmail(s.email), answers,
             createdAt: old?.createdAt || now, updatedAt: now, edits: (old?.edits || 0) + (old ? 1 : 0) };
           await db().setJSON(key, rec);
           return json({ ok: true, submittedAt: now });
@@ -238,8 +245,7 @@ export default async (req) => {
       if (!quiz || !quiz.active) return fail("Quiz non disponibile.", 404);
 
       if (route === "start" && method === "POST") {
-        const name = String(body.name || "").trim().slice(0, 120);
-        if (!name) return fail("Scrivi nome e cognome.");
+        const name = nameFromEmail(s.email); // la persona è quella dell'email con cui è entrata
         let a = await getAttempt(quiz.id, s.email);
         if (!a) {
           const n = quiz.questions.length, now = Date.now();
@@ -354,9 +360,12 @@ export default async (req) => {
     if (route === "admin/surveys") {
       if (method === "GET") {
         const responses = await listResponses();
-        const surveys = await Promise.all(SURVEYS.map(async (def) => ({ ...(await getSurveyConfig(def.id)), def,
-          count: responses.filter((r) => r.surveyId === def.id).length })));
-        return json({ surveys });
+        const surveys = await Promise.all(SURVEYS.map(async (base) => {
+          const custom = await db().get("survey-defs/" + base.id, { type: "json" });
+          return { ...(await getSurveyConfig(base.id)), def: custom || base, edited: custom ? custom.editedAt || true : false,
+            count: responses.filter((r) => r.surveyId === base.id).length };
+        }));
+        return json({ surveys, locked: LOCKED });
       }
       if (method === "PATCH") {
         const def = getSurveyDef(body.id);
@@ -367,6 +376,22 @@ export default async (req) => {
         cfg.updatedAt = Date.now();
         await db().setJSON("survey-config/" + def.id, cfg);
         return json({ ok: true, ...cfg });
+      }
+    }
+
+    if (route === "admin/survey-def") {
+      const base = getSurveyDef(body.id || url.searchParams.get("id"));
+      if (!base) return fail("Survey non trovata.", 404);
+      if (method === "PUT") {
+        const { def, error } = validateDef(body.def, base);
+        if (error) return fail(error);
+        def.editedAt = Date.now();
+        await db().setJSON("survey-defs/" + base.id, def);
+        return json({ def });
+      }
+      if (method === "DELETE") { // torna alla versione originale
+        await db().delete("survey-defs/" + base.id);
+        return json({ def: base });
       }
     }
 

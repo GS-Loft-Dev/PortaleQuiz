@@ -27,10 +27,9 @@ const AI_SURVEY = {
       id: "a",
       title: "A. Informazioni generali",
       questions: [
-        { id: "q1", n: 1, short: "Nome e cognome", label: "Nome e cognome", type: "select", optionsFrom: "names", other: "Il mio nome non è in elenco", otherPlaceholder: "Scrivi nome e cognome", required: true },
         { id: "q2", n: 2, short: "Area", label: "Qual è il tuo ruolo e di che cosa ti occupi?", help: "Scegli la tua area", type: "select", required: true,
           options: ["Team Marketing / Tech", "Team Amministrativo & Back Office", "Team Front-Office", "Team Tecnico", "Team Tecnico Damnfit", "Direzione"] },
-        { id: "q2r", short: "Ruolo", label: "Descrivi brevemente il tuo ruolo", type: "text", placeholder: "Es. personal trainer, segreteria, social media…" },
+        { id: "q2r", sub: true, short: "Ruolo", label: "Descrivi brevemente il tuo ruolo", type: "text", placeholder: "Es. personal trainer, segreteria, social media…" },
         { id: "q3", n: 3, short: "Uso dell'IA", label: "Usi, hai usato o stai provando strumenti di IA per il lavoro?", type: "single", required: true,
           options: [...SI.slice(0, 3), "No", "Non sono sicuro o sicura"] },
       ],
@@ -40,7 +39,7 @@ const AI_SURVEY = {
       title: "B. Gli strumenti che usi",
       showIf: { q: "q3", in: SI },
       hiddenIf: { q: "q3", in: ["No"] },
-      hiddenNote: "Hai risposto “No” alla domanda 3: passa direttamente alla sezione C.",
+      hiddenNote: "Hai risposto “No”: passa direttamente alla sezione C.",
       note: "Compila una scheda per ogni strumento di IA che usi o hai usato per lavoro, anche se l'hai usato una sola volta. Alla fine di ogni scheda trovi il pulsante “+ Aggiungi un altro strumento”.",
       repeat: { item: "Strumento", add: "+ Aggiungi un altro strumento", ask: "Usi o hai usato anche altri strumenti di IA per lavoro? Aggiungi una scheda per ciascuno.", max: 20 },
       questions: [
@@ -61,7 +60,7 @@ const AI_SURVEY = {
             "Trascrivere o riassumere riunioni e chiamate", "Creare immagini, audio, video o materiali di marketing", "Analizzare dati o preparare report",
             "Scrivere codice o configurare programmi", "Scrivere o suggerire risposte ai clienti", "Preparare materiali o indicazioni per i clienti",
             "Aiutarmi nella selezione o gestione del personale", "Aiutarmi a valutare situazioni o prendere decisioni di lavoro", "Svolgere automaticamente alcune attività"] },
-        { id: "q9e", short: "Esempio d'uso", label: "Fai un esempio concreto di come lo usi, senza scrivere nomi o informazioni riservate.", type: "textarea", required: true,
+        { id: "q9e", sub: true, short: "Esempio d'uso", label: "Fai un esempio concreto di come lo usi, senza scrivere nomi o informazioni riservate.", type: "textarea", required: true,
           placeholder: "Es. gli chiedo di sistemare il testo delle mail ai fornitori" },
         { id: "q10", n: 10, short: "Informazioni inserite", label: "Che tipo di informazioni inserisci o carichi nello strumento? A quali informazioni può accedere?", type: "multi", required: true, other: "Altro",
           help: "Non allegare documenti e non riportare dati concreti nel questionario, né password, credenziali o altri segreti aziendali.", exclusive: ["Non so"],
@@ -119,8 +118,95 @@ const AI_SURVEY = {
   },
 };
 
-export const SURVEYS = [AI_SURVEY];
+export const SURVEYS = [renumber(AI_SURVEY)];
 export const getSurveyDef = (id) => SURVEYS.find((s) => s.id === id) || null;
+
+/* ---------------- survey modificata dal responsabile ---------------- */
+// Domande che il resto del portale usa per riepiloghi e logica: non si possono eliminare né cambiare di tipo.
+export const LOCKED = {
+  q3: "Decide se mostrare la sezione B: le sue risposte non si possono cambiare.",
+  q4: "È il nome dello strumento in ogni scheda e nel riepilogo.",
+};
+const TYPES = ["single", "multi", "select", "text", "textarea"];
+const CHOICE = ["single", "multi", "select"];
+
+// Numera le domande principali in ordine (le sotto-domande non hanno numero).
+export function renumber(def) {
+  let n = 1;
+  for (const sec of def.sections) for (const q of sec.questions) {
+    if (q.sub || q.showIf) delete q.n; else q.n = n++;
+  }
+  return def;
+}
+
+// Controlla una survey modificata partendo dall'originale: la struttura (sezioni, domande bloccate) resta quella.
+export function validateDef(input, base) {
+  const str = (v, max, req) => (typeof v === "string" ? v.trim().slice(0, max) : "") || (req ? null : "");
+  const err = (m) => ({ error: m });
+  if (!input || typeof input !== "object") return err("Dati della survey mancanti.");
+  const out = { ...base };
+  out.title = str(input.title, 120, true); if (!out.title) return err("Il titolo è obbligatorio.");
+  out.subtitle = str(input.subtitle, 300);
+  out.estimate = str(input.estimate, 200);
+  out.warning = str(input.warning, 1500);
+  out.intro = (Array.isArray(input.intro) ? input.intro : []).map((p) => str(p, 1500)).filter(Boolean).slice(0, 10);
+  const pr = input.privacy || {};
+  out.privacy = { title: str(pr.title, 200) || base.privacy.title,
+    paragraphs: (Array.isArray(pr.paragraphs) ? pr.paragraphs : []).map((p) => str(p, 4000)).filter(Boolean).slice(0, 15),
+    ack: str(pr.ack, 500) || base.privacy.ack, ackNote: str(pr.ackNote, 500) };
+  if (!Array.isArray(input.sections) || input.sections.length !== base.sections.length) return err("Le sezioni della survey non possono essere aggiunte o tolte.");
+  const ids = new Set();
+  out.sections = [];
+  for (const [si, bs] of base.sections.entries()) {
+    const s = input.sections[si] || {};
+    const sec = { ...bs, title: str(s.title, 200) || bs.title };
+    if (bs.note != null) sec.note = str(s.note, 1500);
+    if (!Array.isArray(s.questions) || !s.questions.length) return err(`La sezione “${sec.title}” deve avere almeno una domanda.`);
+    if (s.questions.length > 60) return err(`Troppe domande nella sezione “${sec.title}”.`);
+    sec.questions = [];
+    const seen = {}; // domande precedenti della stessa scheda, per le condizioni
+    for (const [qi, x] of s.questions.entries()) {
+      const where = `Sezione “${sec.title}”, domanda ${qi + 1}`;
+      if (!x || typeof x.id !== "string" || !/^[a-z0-9_]{1,24}$/.test(x.id) || ids.has(x.id)) return err(`${where}: identificativo non valido.`);
+      ids.add(x.id);
+      const orig = bs.questions.find((q) => q.id === x.id) || base.sections.flatMap((b) => b.questions).find((q) => q.id === x.id);
+      const q = { id: x.id };
+      if (LOCKED[x.id]) { Object.assign(q, orig); if (bs.questions.indexOf(orig) < 0) return err(`${where}: questa domanda non può cambiare sezione.`); }
+      q.label = str(x.label, 600, true); if (!q.label) return err(`${where}: scrivi il testo della domanda.`);
+      q.short = str(x.short, 60) || q.label.slice(0, 50);
+      q.help = str(x.help, 600); if (!q.help) delete q.help;
+      q.placeholder = str(x.placeholder, 200); if (!q.placeholder) delete q.placeholder;
+      q.required = LOCKED[x.id] ? true : !!x.required;
+      if (x.sub) q.sub = true; else delete q.sub;
+      if (!LOCKED[x.id]) {
+        q.type = TYPES.includes(x.type) ? x.type : "single";
+        if (CHOICE.includes(q.type)) {
+          q.options = [...new Set((Array.isArray(x.options) ? x.options : []).map((o) => str(o, 300)).filter(Boolean))].slice(0, 40);
+          if (q.options.length < (x.other ? 1 : 2)) return err(`${where}: servono almeno 2 risposte tra cui scegliere.`);
+          q.other = str(x.other, 100); if (!q.other) delete q.other;
+          if (q.other) q.otherPlaceholder = str(x.otherPlaceholder, 100) || "Specifica";
+          if (q.type === "multi") { q.exclusive = (Array.isArray(x.exclusive) ? x.exclusive : []).filter((o) => q.options.includes(o)); if (!q.exclusive.length) delete q.exclusive; }
+        }
+      } else if (x.id === "q4") { // si possono cambiare le voci del menu, non il tipo
+        q.options = [...new Set((Array.isArray(x.options) ? x.options : []).map((o) => str(o, 300)).filter(Boolean))].slice(0, 60);
+        if (!q.options.length) return err(`${where}: serve almeno uno strumento nell'elenco.`);
+        q.other = str(x.other, 100) || orig.other;
+      }
+      if (x.showIf && typeof x.showIf.q === "string") { // la condizione deve puntare a una domanda precedente della stessa scheda
+        const parent = seen[x.showIf.q];
+        const opts = parent ? (parent.options || []).concat(parent.other ? [parent.other] : []) : [];
+        const inn = (Array.isArray(x.showIf.in) ? x.showIf.in : []).filter((o) => opts.includes(o));
+        if (!parent || !inn.length) return err(`${where} (“${q.label.slice(0, 40)}…”): compare solo dopo certe risposte di un'altra domanda, ma quelle risposte non esistono più. Rimettile o elimina questa domanda.`);
+        q.showIf = { q: x.showIf.q, in: inn };
+      } else delete q.showIf;
+      seen[q.id] = q;
+      sec.questions.push(q);
+    }
+    out.sections.push(sec);
+  }
+  for (const id of Object.keys(LOCKED)) if (!ids.has(id)) return err("Una domanda necessaria al portale è stata eliminata.");
+  return { def: renumber(out) };
+}
 
 /* ---------------- controllo delle risposte ---------------- */
 const asList = (v) => (Array.isArray(v) ? v : v == null || v === "" ? [] : [v]);
@@ -182,9 +268,8 @@ export function cleanAnswers(def, raw, names = []) {
   return { answers: { main, groups, ack: true }, errors };
 }
 
-// Nome mostrato al responsabile: scelto dall'elenco o scritto a mano.
-export function respondentName(def, answers) {
-  const q = def.sections[0].questions[0];
-  const v = answers.main[q.id];
-  return (v === q.other ? answers.main[q.id + "__altro"] : v) || "";
+// Nome mostrato al responsabile, ricavato dall'email di accesso: mario.rossi@gsloft.it → "Mario Rossi".
+export function nameFromEmail(email) {
+  return String(email || "").split("@")[0].split(/[._\-+]+/).filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }

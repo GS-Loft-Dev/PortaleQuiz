@@ -19,6 +19,7 @@ const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { c
 const L = i => String.fromCharCode(65 + i);
 const pad2 = n => String(n).padStart(2, '0');
 const fmtT = ms => { ms = Math.max(0, ms); const s = Math.ceil(ms / 1000); return pad2(Math.floor(s / 60)) + ':' + pad2(s % 60); };
+const fmtShort = ts => ts ? new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtD = ts => ts ? new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtDur = ms => { if (!(ms >= 0)) return '—'; const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000); return m + 'm ' + pad2(s) + 's'; };
 /* icone (tratto, colore dal testo) */
@@ -125,21 +126,20 @@ function render() {
   document.body.classList.toggle('is-admin', wide);
   const screen = [S.role, S.view, S.tab, S.svPage, S.loginRole === 'admin' ? 'a' : 'e'].join('|');
   const enter = screen !== lastScreen; lastScreen = screen;
-  app.innerHTML = header() + `<main class="wrap${enter ? ' enter' : ''}">` + h + '</main>';
+  const mainH = `<main class="wrap${enter ? ' enter' : ''}">` + h + '</main>';
+  app.innerHTML = `<div class="bg-fx" aria-hidden="true"><i></i><i></i><i></i></div>` + header() + mainH;
   if (enter) countUp();
   if (focusId) { const el = document.getElementById(focusId); if (el) el.focus({ preventScroll: true }); }
 }
 function header() {
-  const tabs = S.role === 'admin' && !['edit', 'intro', 'done', 'run', 'survey', 'svdone'].includes(S.view) && S.svPage !== 'edit' ? `<nav class="tabs">
-    <button class="tab" data-act="tab" data-v="overview" aria-current="${S.tab === 'overview'}">${ic('home')}Panoramica</button>
-    <button class="tab" data-act="tab" data-v="quiz" aria-current="${S.tab === 'quiz'}">${ic('list')}Quiz</button>
-    <button class="tab" data-act="tab" data-v="survey" aria-current="${S.tab === 'survey'}">${ic('doc')}Survey</button>
-    <button class="tab" data-act="tab" data-v="results" aria-current="${S.tab === 'results'}">${ic('chart')}Risultati</button>
-    <button class="tab" data-act="tab" data-v="access" aria-current="${S.tab === 'access'}">${ic('key')}Accessi</button></nav>` : '';
-  const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout"${tabs ? '' : ' style="margin-left:auto"'}>Esci</button>` : '';
-  const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : '';
-  return `<header class="top"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
-    <h1 class="sub">PORTALE LEARNING<br>${sub}</h1></div>${tabs}${out}</div></header>`;
+  const adm = S.role === 'admin' && !['intro', 'done', 'run', 'survey', 'svdone'].includes(S.view);
+  const cur = S.view === 'edit' ? 'quiz' : S.tab;
+  const items = [['overview', 'home', 'Panoramica'], ['quiz', 'list', 'Quiz', (S.quizzes || []).length], ['survey', 'doc', 'Survey', (S.surveys || []).length], ['results', 'chart', 'Risultati'], ['access', 'users', 'Accessi', (S.people || []).length]];
+  const tabs = adm ? `<nav class="tabs" aria-label="Menu">${items.map(([v, i, l, n]) => `<button class="tab" data-act="tab" data-v="${v}" aria-current="${cur === v}">${ic(i)}<span>${l}</span>${n ? `<em>${n}</em>` : ''}</button>`).join('')}</nav>` : '';
+  const sub = S.role === 'admin' ? 'Responsabile' : S.role === 'employee' ? esc(S.email) : 'Quiz &amp; survey';
+  const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout" title="Esci">${S.role === 'admin' ? '<span class="lo-av">R</span>' : ''}<span>Esci</span></button>` : '';
+  return `<header class="top${adm ? ' has-tabs' : ''}"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
+    <h1 class="sub"><b>Learning</b><span>${sub}</span></h1></div>${tabs}${out}</div></header>`;
 }
 
 /* ----- accesso ----- */
@@ -207,8 +207,18 @@ function overviewView() {
     { ok: live + svLive > 0, t: 'Attiva quiz o survey', d: live + svLive ? `${live} quiz e ${svLive} survey attivi` : 'Diventano visibili al team', act: 'tab', v: 'quiz' },
     { ok: doneAll.length + S.responses.length > 0, t: 'Leggi i risultati', d: doneAll.length ? `${doneAll.length} consegne, media ${avgAll}%` : 'Compaiono man mano', act: 'tab', v: 'results' },
   ];
-  let h = `<div class="stack">${pageHead(`Area responsabile · ${esc(today())}`, 'Panoramica', 'Lo stato del portale a colpo d’occhio.',
-      `<button class="btn primary" data-act="new">${ic('plus')}Nuovo quiz</button>`)}
+  const hr = new Date().getHours(), saluto = hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  const inCorso = rows.filter(r => !r.done).length;
+  let h = `<div class="stack"><section class="hero-admin">
+      <div class="ha-txt"><p class="eyebrow"><span class="pulse"></span>${esc(today())}</p><h2>${saluto}.</h2>
+        <p class="ha-sub">${doneAll.length ? `<b>${doneAll.length}</b> ${doneAll.length === 1 ? 'consegna' : 'consegne'} con media <b>${avgAll}%</b>` : 'Nessuna consegna ancora'}${inCorso ? ` · <b>${inCorso}</b> in corso` : ''}. ${live + svLive ? `${live + svLive} ${live + svLive === 1 ? 'attività attiva' : 'attività attive'} per il team.` : 'Attiva un quiz o una survey per iniziare.'}</p>
+        <div class="row ha-act"><button class="btn primary lg" data-act="new">${ic('plus')}Nuovo quiz</button><button class="btn glass lg" data-act="tab" data-v="results">${ic('chart')}Vedi risultati</button></div></div>
+      <div class="ha-scene" aria-hidden="true"><div class="ha-stage">
+        <div class="hc hc1"><span class="hc-k">Media</span><div class="hc-ring" style="--p:${avgAll}"><b>${avgAll}%</b></div></div>
+        <div class="hc hc2"><span class="hc-k">Consegne</span><div class="hc-bars">${[40, 65, 50, 85, 70, 95, 60].map(x => `<i style="height:${x}%"></i>`).join('')}</div></div>
+        <div class="hc hc3"><span class="hc-k">Team</span><b class="hc-n">${S.people.length}</b><span class="hc-s">persone</span></div>
+      </div></div>
+    </section>
     <div class="kpis">${kpi('Persone', S.people.length, 'con accesso')}${kpi('Quiz attivi', live, `${S.quizzes.length} in totale`, null, 'acc')}
       ${kpi('Consegne', doneAll.length, doneAll.length ? `media ${avgAll}%` : 'nessuna ancora', doneAll.length ? avgAll : null, avgAll >= 80 ? 'ok' : avgAll >= 60 ? 'warn' : doneAll.length ? 'bad' : '')}${kpi('Risposte survey', S.responses.length, `${svLive} ${svLive === 1 ? 'survey attiva' : 'survey attive'}`, null, 'acc')}</div>
     <div class="ov-grid">
@@ -261,7 +271,7 @@ function adminHome() {
         <button class="icon-btn" data-act="preview" data-id="${q.id}" title="Anteprima">${ICON.eye}</button>
         <button class="icon-btn danger" data-act="delask" data-id="${q.id}" title="Elimina">${ICON.trash}</button></div>
       <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small qc-desc">${esc(q.desc)}</p>` : ''}
-      <div class="meta">${ic('list')}<span>${q.questions.length} domande</span>${ic('clock')}<span>${q.duration} min</span><span>· soglia ${q.passPct}%</span></div>
+      <div class="meta">${ic('list')}<span>${q.questions.length} domande</span>${ic('clock')}<span>${q.duration} min</span>${ic('check')}<span>soglia ${q.passPct}%</span></div>
       <div class="progress-mini"><span class="pm-bar"><i style="width:${pct}%"></i></span><span class="small muted"><b>${done}</b>${S.people.length ? `/${S.people.length}` : ''} consegnati</span></div>
       ${ask ? `<div class="qc-ask"><span class="small">Eliminare il quiz? Non si torna indietro.</span><button class="btn sm danger solid" data-act="delok" data-id="${q.id}">Elimina</button><button class="btn sm" data-act="delno">Annulla</button></div>`
         : `<div class="qc-foot"><button class="btn" data-act="edit" data-id="${q.id}">Modifica</button><button class="btn" data-act="seeres" data-id="${q.id}">${ic('chart')}Risultati</button></div>`}
@@ -278,15 +288,15 @@ function editView() {
   <div class="card stack">
     <label class="f">Titolo<input type="text" id="f-title" data-f="title" value="${esc(d.title)}" placeholder="Es. Procedure di accoglienza clienti"></label>
     <label class="f">Istruzioni per i lavoratori <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
-    <div class="grid3">
+    <div class="grid2">
       <label class="f">Durata (minuti)<input type="number" id="f-dur" min="1" max="300" data-f="duration" value="${d.duration}"></label>
       <label class="f">Soglia di superamento (%)<input type="number" id="f-pass" min="0" max="100" data-f="passPct" value="${d.passPct}"></label>
-      <div class="f" style="justify-content:flex-end;gap:8px">
-        <label class="check"><input type="checkbox" id="f-sq" data-f="shuffleQ" ${d.shuffleQ ? 'checked' : ''}>Domande in ordine casuale</label>
-        <label class="check"><input type="checkbox" id="f-so" data-f="shuffleO" ${d.shuffleO ? 'checked' : ''}>Risposte in ordine casuale</label>
-      </div>
     </div>
-    <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai lavoratori)</label>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="f-sq" data-f="shuffleQ" ${d.shuffleQ ? 'checked' : ''}>Domande in ordine casuale</label>
+      <label class="check"><input type="checkbox" id="f-so" data-f="shuffleO" ${d.shuffleO ? 'checked' : ''}>Risposte in ordine casuale</label>
+      <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai lavoratori)</label>
+    </div>
   </div>
   <div class="card stack"><div class="row"><h3>Domande</h3><span class="chip acc">${d.questions.length}</span><span class="spacer"></span><span class="hint">Seleziona il pallino della risposta corretta</span></div>`;
   d.questions.forEach((q, qi) => {
@@ -377,7 +387,7 @@ function resultsView() {
     <div class="kpis">${kpi('Consegnati', done.length, running ? `${running} in corso` : 'nessuno in corso')}
     ${kpi('Superati', passed.length, 'sul totale consegnati', passRate, 'ok')}
     ${kpi('Non superati', done.length - passed.length, 'sotto la soglia', done.length ? 100 - passRate : 0, 'bad')}
-    ${kpi('Punteggio medio', avg + '%', 'risposte corrette', avg, avg >= 80 ? 'ok' : avg >= 60 ? 'warn' : 'bad')}</div>`;
+    ${kpi('Media', avg + '%', 'risposte corrette', avg, avg >= 80 ? 'ok' : avg >= 60 ? 'warn' : 'bad')}</div>`;
   if (!rows.length) return h + `<div class="empty"><h3>Nessun risultato ancora</h3><p>Quando un lavoratore consegna un quiz, qui trovi punteggio, tempo impiegato ed esito.</p></div></div>`;
   if (done.length) {
     const bands = [['Da 80% in su', done.filter(r => r.pct >= 80).length, 'ok'], ['60 – 79%', done.filter(r => r.pct >= 60 && r.pct < 80).length, 'warn'], ['Sotto 60%', done.filter(r => r.pct < 60).length, 'bad']];
@@ -385,21 +395,22 @@ function resultsView() {
       <div class="stackbar">${bands.filter(b => b[1]).map(b => `<i class="${b[2]}" style="flex:${b[1]}" title="${b[0]}: ${b[1]}"></i>`).join('')}</div>
       <div class="legend">${bands.map(b => `<span><i class="dot ${b[2]}"></i>${b[0]} <b>${b[1]}</b></span>`).join('')}</div></div>`;
   }
-  h += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lavoratore</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
+  const showQ = new Set(rows.map(r => r.a.quizId)).size > 1, cols = showQ ? 6 : 5;
+  h += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lavoratore</th>${showQ ? '<th>Quiz</th>' : ''}<th>Svolto</th><th>Punteggio</th><th>Esito</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const k = r.a.key, open = S.openDetail === k;
     const esito = !r.done ? '<span class="chip warn">In corso</span>' : r.pass ? '<span class="chip ok">Superato</span>' : '<span class="chip bad">Non superato</span>';
-    h += `<tr class="${open ? 'is-open' : ''}"><td><div class="who">${avatar(r.name, r.a.email)}<div><b>${esc(r.name)}</b><div class="small muted">${esc(r.a.email)}</div></div></div></td><td class="wrapcell">${esc(r.quiz ? r.quiz.title : 'Quiz eliminato')}</td><td class="num">${fmtD(r.a.startedAt)}</td>
-      <td class="num">${r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '—'}${r.a.auto ? ' <span class="chip warn">tempo scaduto</span>' : ''}</td>
-      <td class="num">${r.done ? `<div class="score"><span class="scorebar"><i class="${r.pass ? 'ok' : 'bad'}" style="width:${r.pct}%"></i></span><span>${r.score}/${r.n} · <b>${r.pct}%</b></span></div>` : '—'}</td><td>${esito}</td><td class="num">${r.a.leaves || 0}</td>
+    h += `<tr class="${open ? 'is-open' : ''}"><td><div class="who">${avatar(r.name, r.a.email)}<div><b>${esc(r.name)}</b><div class="small muted">${esc(r.a.email)}</div></div></div></td>${showQ ? `<td class="qcell"><span title="${esc(r.quiz ? r.quiz.title : '')}">${esc(r.quiz ? r.quiz.title : 'Quiz eliminato')}</span></td>` : ''}
+      <td class="num"><div>${fmtShort(r.a.startedAt)}</div><div class="small muted">${r.done ? 'durata ' + fmtDur(r.a.finishedAt - r.a.startedAt) : 'in corso'}${r.a.auto ? ' · <span style="color:var(--warn)">tempo scaduto</span>' : ''}</div></td>
+      <td class="num">${r.done ? `<div class="score"><span class="scorebar"><i class="${r.pass ? 'ok' : 'bad'}" style="width:${r.pct}%"></i></span><span>${r.score}/${r.n} · <b>${r.pct}%</b></span></div>` : '—'}</td><td>${esito}${r.a.leaves ? `<div class="small muted" style="margin-top:4px">${r.a.leaves} ${r.a.leaves === 1 ? 'uscita' : 'uscite'} dalla pagina</div>` : ''}</td>
       <td><div class="row" style="flex-wrap:nowrap">${r.quiz ? `<button class="btn sm" data-act="detail" data-k="${esc(k)}">${open ? 'Chiudi' : 'Dettaglio'}</button>` : ''}
       ${S.askReset === k ? `<button class="btn sm danger solid" data-act="resetok" data-k="${esc(k)}">Conferma</button><button class="btn sm" data-act="resetno">No</button>` :
-      `<button class="btn sm ghost" data-act="resetask" data-k="${esc(k)}" title="Cancella questo tentativo e permetti di rifarlo">Nuovo tentativo</button>`}</div></td></tr>`;
+      `<button class="btn sm ghost" data-act="resetask" data-k="${esc(k)}" title="Nuovo tentativo: cancella questa consegna e permetti di rifare il quiz">Riapri</button>`}</div></td></tr>`;
     if (open && r.quiz) {
       // domande com'erano quando la persona ha svolto il quiz (copia salvata); per i tentativi vecchi, quelle attuali
       const QS = r.a.questions && r.a.questions.length ? r.a.questions : r.quiz.questions;
       const changed = !(r.a.questions && r.a.questions.length) && r.quiz.updatedAt && r.a.startedAt && r.quiz.updatedAt > r.a.startedAt;
-      h += `<tr><td colspan="8" class="detail">${changed ? `<div class="note warn-note"><b>Attenzione:</b> il quiz è stato modificato dopo questa consegna (${fmtD(r.quiz.updatedAt)}). Il punteggio ${r.score}/${r.n} è quello calcolato alla consegna; il dettaglio qui sotto confronta le risposte con le domande <b>attuali</b>, quindi dove una domanda è cambiata può risultare sbagliata anche se non lo era.</div>` : ''}<div class="ans">${QS.map((q, i) => {
+      h += `<tr><td colspan="${cols}" class="detail">${changed ? `<div class="note warn-note"><b>Attenzione:</b> il quiz è stato modificato dopo questa consegna (${fmtD(r.quiz.updatedAt)}). Il punteggio ${r.score}/${r.n} è quello calcolato alla consegna; il dettaglio qui sotto confronta le risposte con le domande <b>attuali</b>, quindi dove una domanda è cambiata può risultare sbagliata anche se non lo era.</div>` : ''}<div class="ans">${QS.map((q, i) => {
         const g = (r.a.answers || {})[i]; const ok = g !== undefined && g === q.correct;
         return `<div><span class="k ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span><span><b>${i + 1}. ${esc(q.text)}</b><br>
           <span class="muted">Risposta data:</span> ${g === undefined ? '<i>nessuna</i>' : esc(q.options[g])}
@@ -407,7 +418,7 @@ function resultsView() {
       }).join('')}</div></td></tr>`;
     }
   }
-  return h + `</tbody></table></div><p class="small muted">"Uscite" conta quante volte il lavoratore ha lasciato la pagina durante il quiz (cambio scheda o app).</p></div>`;
+  return h + `</tbody></table></div><p class="small muted">Le "uscite dalla pagina" contano quante volte il lavoratore ha cambiato scheda o app durante il quiz.</p></div>`;
 }
 function exportCsv() {
   let rows = attemptRows(); if (S.resFilter !== 'all') rows = rows.filter(r => r.a.quizId === S.resFilter);
@@ -1100,11 +1111,11 @@ function countUp() {
 if (matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
   let cur = null;
   app.addEventListener('pointermove', e => {
-    const el = e.target.closest('.tilt');
+    const el = e.target.closest('.tilt,.kpi,.qcard2,.p3d');
     if (cur && cur !== el) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); }
     cur = el; if (!el) return;
     const r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-    const max = el.classList.contains('login') ? 4 : 7;
+    const max = el.classList.contains('login') ? 4 : el.classList.contains('kpi') ? 10 : 7;
     el.style.setProperty('--rx', ((0.5 - y) * max).toFixed(2) + 'deg');
     el.style.setProperty('--ry', ((x - 0.5) * max).toFixed(2) + 'deg');
     el.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
@@ -1112,7 +1123,7 @@ if (matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(pr
     el.classList.add('is-tilting');
   });
   app.addEventListener('pointermove', e => {
-    const sc = app.querySelector('.stack3d'); if (!sc) return;
+    const sc = app.querySelector('.stack3d,.ha-stage'); if (!sc) return;
     sc.style.setProperty('--px', ((e.clientX / innerWidth) - 0.5).toFixed(3)); sc.style.setProperty('--py', ((e.clientY / innerHeight) - 0.5).toFixed(3));
   });
   app.addEventListener('pointerleave', () => { if (cur) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); cur = null; } });

@@ -98,7 +98,7 @@ function header() {
   const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout"${tabs ? '' : ' style="margin-left:auto"'}>Esci</button>` : '';
   const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : '';
   return `<header class="top"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
-    <h1 class="sub">PORTALE QUIZ &amp; SURVEY<br>${sub}</h1></div>${tabs}${out}</div></header>`;
+    <h1 class="sub">PORTALE LEARNING<br>${sub}</h1></div>${tabs}${out}</div></header>`;
 }
 
 /* ----- accesso ----- */
@@ -343,7 +343,7 @@ async function addAccess() {
 /* ----- lavoratore ----- */
 function employeeHome() {
   const todo = S.quizzes.filter(q => q.status !== 'consegnato').length + S.surveys.filter(s => !s.submittedAt).length;
-  let h = `<div class="stack"><div class="row hello"><div><p class="eyebrow">${todo ? `${todo} ${todo === 1 ? 'attività aperta' : 'attività aperte'}` : 'Tutto completato'}</p><h2>Da completare</h2><p class="muted small">Qui trovi le survey e i quiz attivati dal responsabile.</p></div><span class="spacer"></span><button class="btn" data-act="reload">Aggiorna</button></div>`;
+  let h = `<div class="stack"><div class="row hello"><div><p class="eyebrow">${todo ? `${todo} ${todo === 1 ? 'attività aperta' : 'attività aperte'}` : 'Tutto completato'}</p><h2>Da completare</h2><p class="muted small">Qui trovi Survey e Quiz da completare o completati.</p></div><span class="spacer"></span><button class="btn" data-act="reload">Aggiorna</button></div>`;
   if (!S.quizzes.length && !S.surveys.length) return h + `<div class="empty"><h3>Niente da completare</h3><p>Quando il responsabile attiva una survey o un quiz, lo trovi qui.</p></div></div>`;
   if (S.surveys.length) {
     h += '<h3 class="sec-t">Survey</h3><div class="tiles">';

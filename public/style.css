@@ -647,3 +647,10 @@ header.top::after{opacity:.35}
 @keyframes line{to{width:min(220px,50vw)}}
 @keyframes word{to{opacity:1;transform:none}}
 @keyframes glowin{from{opacity:0}}
+/* pulizia invii */
+.purge{border-color:color-mix(in srgb,var(--bad) 22%,var(--line))}
+.purge-ic{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:var(--bad-soft);color:var(--bad);flex:none;align-self:flex-start}
+.purge-ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.purge-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.purge-row select{flex:1 1 280px;width:auto;min-height:40px;border-radius:10px}
+.purge-ask{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:var(--bad-soft);color:var(--bad)}

@@ -215,8 +215,34 @@ function overviewView() {
       <div class="card feed"><div class="row"><h3>Attività recenti</h3>${acts.length ? '<span class="live-dot" aria-hidden="true"></span>' : ''}<span class="spacer"></span><button class="btn sm ghost" data-act="reload">Aggiorna</button></div>
         ${acts.length ? `<ul>${acts.map(a => `<li>${avatar(a.who, a.email)}<span class="feed-t"><b>${esc(a.who || a.email)}</b> ${a.what}<span class="small muted"> · ${timeAgo(a.t)}</span></span><span class="chip ${a.tone}">${esc(a.tag)}</span></li>`).join('')}</ul>`
           : '<p class="muted small" style="margin-top:10px">Qui compariranno consegne e risposte appena arrivano.</p>'}</div>
-    </div></div>`;
+    </div>${purgeCard()}</div>`;
   return h;
+}
+/* pulizia degli invii (consegne quiz e risposte survey); quiz, survey e accessi non si toccano */
+function purgeCount(t) {
+  if (t === 'all') return S.attempts.length + S.responses.length;
+  if (t.startsWith('q:')) return S.attempts.filter(a => a.quizId === t.slice(2)).length;
+  if (t.startsWith('s:')) return S.responses.filter(r => r.surveyId === t.slice(2)).length;
+  return 0;
+}
+function purgeCard() {
+  const t = S.purgeT || 'all', n = purgeCount(t), all = purgeCount('all');
+  const opts = [`<option value="all" ${t === 'all' ? 'selected' : ''}>Tutti gli invii (${all})</option>`,
+    ...S.quizzes.map(q => `<option value="q:${q.id}" ${t === 'q:' + q.id ? 'selected' : ''}>Quiz · ${esc(q.title)} (${purgeCount('q:' + q.id)})</option>`),
+    ...S.surveys.map(x => `<option value="s:${x.def.id}" ${t === 's:' + x.def.id ? 'selected' : ''}>Survey · ${esc(x.def.title)} (${purgeCount('s:' + x.def.id)})</option>`)].join('');
+  return `<div class="card stack purge" id="purge"><div class="row"><span class="purge-ic">${ICON.trash}</span><div style="flex:1;min-width:0"><h3>Pulizia invii</h3>
+    <p class="small muted">Elimina consegne dei quiz e risposte alle survey, per esempio quelle di prova. <b>Quiz, survey e accessi restano come sono</b>; chi aveva già inviato potrà farlo di nuovo.</p></div></div>
+    <div class="purge-row"><select id="purge-t" data-f="purge" aria-label="Cosa eliminare">${opts}</select>
+    ${S.purgeAsk ? `<div class="purge-ask"><span class="small"><b>Eliminare ${n} ${n === 1 ? 'invio' : 'invii'}?</b> Non si torna indietro.</span><button class="btn sm danger solid" data-act="purgeok" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Elimino…' : 'Elimina'}</button><button class="btn sm" data-act="purgeno">Annulla</button></div>`
+      : `<button class="btn danger" data-act="purgeask" ${n ? '' : 'disabled'}>${ic('trash')}Elimina ${n} ${n === 1 ? 'invio' : 'invii'}</button>`}</div></div>`;
+}
+async function doPurge() {
+  const t = S.purgeT || 'all';
+  const body = t === 'all' ? { quizzes: 'all', surveys: 'all' } : t.startsWith('q:') ? { quizzes: t.slice(2) } : { surveys: t.slice(2) };
+  S.saving = true; render();
+  try { const r = await api('admin/purge', { method: 'POST', body }); toast(`${r.deleted} ${r.deleted === 1 ? 'invio eliminato' : 'invii eliminati'}`); S.purgeAsk = false; S.purgeT = 'all'; S.openDetail = null; S.svOpen = null; await loadAll(); }
+  catch (e) { if (e.message !== '401') toast(e.message); }
+  S.saving = false; render();
 }
 function adminHome() {
   const rows = attemptRows();
@@ -346,7 +372,7 @@ function resultsView() {
   let h = `<div class="stack">${pageHead('Analisi', 'Risultati', 'Punteggi, tempi ed esiti dei quiz consegnati.',
     `<select id="resf" data-f="resFilter" aria-label="Filtra per quiz" style="width:auto;max-width:100%"><option value="all">Tutti i quiz</option>
     ${S.quizzes.map(q => `<option value="${q.id}" ${S.resFilter === q.id ? 'selected' : ''}>${esc(q.title)}</option>`).join('')}</select>
-    <button class="btn" data-act="reload">Aggiorna</button>${rows.length ? '<button class="btn" data-act="csv">Esporta CSV</button>' : ''}`)}
+    <button class="btn" data-act="reload">Aggiorna</button>${rows.length ? '<button class="btn" data-act="csv">Esporta CSV</button><button class="btn ghost danger" data-act="purgego" title="Elimina le consegne (per esempio quelle di prova)">Pulisci invii</button>' : ''}`)}
     <div class="kpis">${kpi('Consegnati', done.length, running ? `${running} in corso` : 'nessuno in corso')}
     ${kpi('Superati', passed.length, 'sul totale consegnati', passRate, 'ok')}
     ${kpi('Non superati', done.length - passed.length, 'sotto la soglia', done.length ? 100 - passRate : 0, 'bad')}
@@ -993,6 +1019,11 @@ app.addEventListener('click', async e => {
       case 'delno': S.askDel = null; render(); break;
       case 'delok': S.askDel = null; await api('admin/quizzes?id=' + encodeURIComponent(b.dataset.id), { method: 'DELETE' }); toast('Quiz eliminato'); await refresh(); break;
       case 'seeres': S.resFilter = b.dataset.id; S.tab = 'results'; render(); break;
+      case 'purgeask': S.purgeAsk = true; render(); break;
+      case 'purgeno': S.purgeAsk = false; render(); break;
+      case 'purgeok': doPurge(); break;
+      case 'purgego': S.purgeT = S.resFilter && S.resFilter !== 'all' ? 'q:' + S.resFilter : 'all'; S.purgeAsk = false; S.tab = 'overview'; S.view = 'home'; render();
+        setTimeout(() => { const el = document.getElementById('purge'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 60); break;
       case 'detail': S.openDetail = S.openDetail === b.dataset.k ? null : b.dataset.k; render(); break;
       case 'resetask': S.askReset = b.dataset.k; render(); break;
       case 'resetno': S.askReset = null; render(); break;
@@ -1020,6 +1051,7 @@ app.addEventListener('input', e => {
   if (t.dataset.se && S.svEdit) { if (!['bool', 'type', 'ex', 'other'].includes(t.dataset.sek)) seField(t); return; }
   const f = t.dataset.f; if (!f) return;
   if (f === 'resFilter') { S.resFilter = t.value; S.openDetail = null; render(); return; }
+  if (f === 'purge') { S.purgeT = t.value; S.purgeAsk = false; render(); return; }
   const d = S.draft; if (!d) return;
   const qi = +t.dataset.q, oi = +t.dataset.o;
   if (f === 'qtext') d.questions[qi].text = t.value;

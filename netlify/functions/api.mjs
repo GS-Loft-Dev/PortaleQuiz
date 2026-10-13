@@ -404,6 +404,24 @@ export default async (req) => {
       return json({ ok: true });
     }
 
+    // Pulizia degli invii: elimina consegne dei quiz e/o risposte delle survey. Quiz, survey e accessi restano.
+    // body: { quizzes: "all" | "<idQuiz>" | null, surveys: "all" | "<idSurvey>" | null }
+    if (route === "admin/purge" && method === "POST") {
+      const ok = (v) => v === "all" || (typeof v === "string" && /^[\w-]+$/.test(v));
+      const prefixes = [];
+      if (body.quizzes) { if (!ok(body.quizzes)) return fail("Quiz non valido."); prefixes.push(body.quizzes === "all" ? "attempts/" : `attempts/${body.quizzes}/`); }
+      if (body.surveys) { if (!ok(body.surveys)) return fail("Survey non valida."); prefixes.push(body.surveys === "all" ? "survey-responses/" : `survey-responses/${body.surveys}/`); }
+      if (!prefixes.length) return fail("Scegli cosa eliminare.");
+      const store = db();
+      let deleted = 0;
+      for (const prefix of prefixes) {
+        const { blobs } = await store.list({ prefix });
+        await Promise.all(blobs.map((b) => store.delete(b.key)));
+        deleted += blobs.length;
+      }
+      return json({ ok: true, deleted });
+    }
+
     if (route === "admin/attempt" && method === "DELETE") {
       const key = url.searchParams.get("key") || "";
       if (!/^attempts\/[\w-]+\/[a-f0-9]{32}$/.test(key)) return fail("Tentativo non valido.");

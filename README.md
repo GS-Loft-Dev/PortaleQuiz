@@ -35,6 +35,25 @@ C. 30 giorni
 RISPOSTA: B
 ```
 
+## Email di accesso
+
+Quando aggiungi email negli **Accessi**, ogni persona riceve subito un'email con link al portale, email e codice personale (si può togliere la spunta per non inviarla). La ricevono anche con **Nuovo codice**, e si può reinviare con **Invia / Reinvia**. Nella colonna "Email di accesso" vedi se e quando è partita.
+
+Attenzione: chi riceve l'accesso vede subito i quiz e le survey già attivi.
+
+Per attivare l'invio, su Netlify (Site configuration → Environment variables) imposta una delle due opzioni e rifai il deploy:
+
+**Resend** (consigliato, piano gratuito fino a 3.000 email/mese): crea un account su resend.com, verifica il dominio (es. gsloft.it) con i record DNS indicati, crea una API key.
+- `RESEND_API_KEY` = la chiave
+- `MAIL_FROM` = `Learning GS LOFT <learning@gsloft.it>`
+
+**SMTP della casella aziendale** (Google Workspace, Microsoft 365, Aruba…):
+- `SMTP_HOST` (es. `smtp.gmail.com`, `smtp.office365.com`, `smtps.aruba.it`), `SMTP_PORT` (465 o 587)
+- `SMTP_USER`, `SMTP_PASS` (per Google serve una "password per le app")
+- `MAIL_FROM` = `Learning GS LOFT <indirizzo della casella>`
+
+Il link nell'email è l'indirizzo del sito Netlify; con un dominio tuo imposta anche `SITE_URL` (es. `https://learning.gsloft.it`). Finché l'invio non è configurato, gli Accessi funzionano come prima con il pulsante "Copia".
+
 ## Sicurezza
 
 - Responsabile con password, lavoratori con email e codice personale. Sessione valida 12 ore.

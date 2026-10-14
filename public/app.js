@@ -85,7 +85,7 @@ async function boot() {
 async function loadAll() {
   if (S.role === 'admin') {
     const [q, p, r, sv, sr] = await Promise.all([api('admin/quizzes'), api('admin/people'), api('admin/results'), api('admin/surveys'), api('admin/survey-responses')]);
-    S.quizzes = q.quizzes; S.people = p.people; S.attempts = r.attempts; S.surveys = sv.surveys; S.locked = sv.locked || {}; S.responses = sr.responses;
+    S.quizzes = q.quizzes; S.people = p.people; S.mailOn = !!p.mail; S.attempts = r.attempts; S.surveys = sv.surveys; S.locked = sv.locked || {}; S.responses = sr.responses;
   } else if (S.role === 'employee') {
     const [q, sv] = await Promise.all([api('quizzes'), api('surveys')]);
     S.quizzes = q.quizzes; S.surveys = sv.surveys;
@@ -434,29 +434,46 @@ function exportCsv() {
 /* ----- responsabile: accessi ----- */
 function accessView() {
   const list = S.people.slice().sort((a, b) => a.email.localeCompare(b.email));
+  const live = S.quizzes.filter(q => q.active).length + S.surveys.filter(x => x.active).length;
+  const sendOn = S.sendMail !== false;
   let h = `<div class="stack">${pageHead('Persone', 'Accessi', 'Solo le persone in questo elenco possono entrare.<br>Ognuna accede con la sua email e il codice personale generato qui.',
     `<span class="count-pill">${ic('users')}${list.length} ${list.length === 1 ? 'persona' : 'persone'}</span>`)}
   <div class="card stack add-card"><label class="f">Aggiungi email <span class="hint">anche più di una, separate da virgola o a capo</span>
-    <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it"></textarea></label>
+    <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it">${esc(S.accIn || '')}</textarea></label>
+    ${S.mailOn ? `<label class="check"><input type="checkbox" id="acc-mail" data-f="sendMail" ${sendOn ? 'checked' : ''}>Invia subito a ognuno l'email con link, email e codice personale</label>` : ''}
+    ${live ? `<p class="note warn-note small"><b>Attenzione:</b> ci sono ${live === 1 ? '1 attività attiva' : live + ' attività attive'} (quiz o survey). Chi riceve l'accesso adesso le vede e può svolgerle subito.</p>` : ''}
     ${S.accErr ? `<div class="err">${esc(S.accErr)}</div>` : ''}
-    <div class="row"><span class="spacer"></span><button class="btn primary" data-act="accadd" ${S.saving ? 'disabled' : ''}>Autorizza e genera codici</button></div></div>`;
+    <div class="row"><span class="spacer"></span><button class="btn primary" data-act="accadd" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Attendi…' : S.mailOn && sendOn ? 'Autorizza e invia email' : 'Autorizza e genera codici'}</button></div></div>`;
   if (!list.length) return h + `<div class="empty"><h3>Nessuna email autorizzata</h3><p>Finché l'elenco è vuoto nessun lavoratore può entrare.</p></div></div>`;
-  h += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Email autorizzate · ${list.length}</th><th>Codice</th><th></th></tr></thead><tbody>`;
+  h += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Email autorizzate · ${list.length}</th><th>Codice</th>${S.mailOn ? '<th>Email di accesso</th>' : ''}<th></th></tr></thead><tbody>`;
   for (const p of list) {
     const msg = `Link: ${location.origin}\nEmail: ${p.email}\nCodice di accesso: ${p.code}`;
+    const st = p.mailError && !p.mailedAt ? '<span class="chip bad">Non riuscita</span>' : p.mailedAt ? `<span class="chip ok">Inviata</span> <span class="small muted">${timeAgo(p.mailedAt)}</span>` : '<span class="chip">Non inviata</span>';
+    const busy = S.mailing === p.email;
     h += `<tr><td><div class="who">${avatar('', p.email)}<span>${esc(p.email)}</span></div></td><td class="num"><span class="code">${esc(p.code)}</span> <button class="btn sm ghost" data-act="copy" data-t="${esc(msg)}">Copia</button>
-      <button class="btn sm ghost" data-act="regen" data-e="${esc(p.email)}" title="Genera un nuovo codice: quello vecchio smette di funzionare">Nuovo codice</button></td>
+      <button class="btn sm ghost" data-act="regen" data-e="${esc(p.email)}" title="Genera un nuovo codice: quello vecchio smette di funzionare${S.mailOn ? ". La persona riceve l'email con il nuovo codice" : ''}">Nuovo codice</button></td>
+      ${S.mailOn ? `<td>${st} <button class="btn sm ghost" data-act="accmail" data-e="${esc(p.email)}" ${busy ? 'disabled' : ''}>${busy ? 'Invio…' : p.mailedAt ? 'Reinvia' : 'Invia'}</button></td>` : ''}
       <td style="text-align:right">${S.askRm === p.email ? `<span class="small muted">Togliere l'accesso?</span> <button class="btn sm danger solid" data-act="accrmok" data-e="${esc(p.email)}">Rimuovi</button> <button class="btn sm" data-act="accrmno">Annulla</button>`
       : `<button class="btn sm ghost danger" data-act="accrm" data-e="${esc(p.email)}">Rimuovi</button>`}</td></tr>`;
   }
-  return h + `</tbody></table></div><p class="small muted">"Copia" prepara il messaggio con link, email e codice da mandare al lavoratore.</p></div>`;
+  return h + `</tbody></table></div><p class="small muted">${S.mailOn ? 'L\'email contiene link al portale, email e codice personale. ' : ''}"Copia" prepara lo stesso messaggio da mandare a mano.</p></div>`;
 }
+const mailMsg = (m, okOne, okMany) => !m || !m.configured ? '' : m.failed && m.failed.length ? ` · email non inviata a ${m.failed.length}` : m.sent ? ` · ${m.sent === 1 ? okOne : m.sent + ' ' + okMany}` : '';
 async function addAccess() {
-  const emails = document.getElementById('accin').value.split(/[\s,;]+/).filter(Boolean);
+  S.accIn = document.getElementById('accin').value;
+  const emails = S.accIn.split(/[\s,;]+/).filter(Boolean);
   S.saving = true; S.accErr = null; render();
-  try { const r = await api('admin/people', { method: 'POST', body: { emails } }); S.people = r.people; toast(r.added ? (r.added === 1 ? 'Email autorizzata' : r.added + ' email autorizzate') : 'Email già autorizzate'); }
-  catch (e) { if (e.message !== '401') S.accErr = e.message; }
+  try {
+    const r = await api('admin/people', { method: 'POST', body: { emails, sendMail: S.sendMail !== false } }); S.people = r.people; S.accIn = '';
+    toast((r.added ? (r.added === 1 ? 'Email autorizzata' : r.added + ' email autorizzate') : 'Email già autorizzate') + mailMsg(r.mail, 'email inviata', 'email inviate'));
+  } catch (e) { if (e.message !== '401') S.accErr = e.message; }
   S.saving = false; render();
+}
+async function mailAccess(email) {
+  S.mailing = email; render();
+  try { const r = await api('admin/people/mail', { method: 'POST', body: { email } }); S.people = r.people; toast('Email inviata a ' + email); }
+  catch (e) { if (e.message !== '401') toast(e.message); }
+  S.mailing = null; render();
 }
 
 /* ----- lavoratore ----- */
@@ -1048,7 +1065,8 @@ app.addEventListener('click', async e => {
       case 'accrm': S.askRm = b.dataset.e; render(); break;
       case 'accrmno': S.askRm = null; render(); break;
       case 'accrmok': S.askRm = null; S.people = (await api('admin/people?email=' + encodeURIComponent(b.dataset.e), { method: 'DELETE' })).people; toast('Accesso rimosso'); render(); break;
-      case 'regen': S.people = (await api('admin/people', { method: 'PATCH', body: { email: b.dataset.e } })).people; toast('Nuovo codice generato'); render(); break;
+      case 'regen': { const r = await api('admin/people', { method: 'PATCH', body: { email: b.dataset.e } }); S.people = r.people; toast('Nuovo codice generato' + mailMsg(r.mail, 'email inviata', 'email inviate')); render(); break; }
+      case 'accmail': mailAccess(b.dataset.e); break;
       case 'copy': navigator.clipboard.writeText(b.dataset.t).then(() => toast('Copiato'), () => toast('Copia non riuscita: seleziona il testo a mano')); break;
       case 'preview': S.preview = true; S.sel = b.dataset.id; S.view = 'intro'; render(); window.scrollTo(0, 0); break;
       case 'intro': S.preview = false; S.sel = b.dataset.id; S.view = 'intro'; render(); window.scrollTo(0, 0); break;
@@ -1067,6 +1085,7 @@ app.addEventListener('input', e => {
   const f = t.dataset.f; if (!f) return;
   if (f === 'resFilter') { S.resFilter = t.value; S.openDetail = null; render(); return; }
   if (f === 'purge') { S.purgeT = t.value; S.purgeAsk = false; render(); return; }
+  if (f === 'sendMail') { S.sendMail = t.checked; const b = document.querySelector('[data-act=accadd]'); if (b) b.textContent = t.checked ? 'Autorizza e invia email' : 'Autorizza e genera codici'; return; }
   const d = S.draft; if (!d) return;
   const qi = +t.dataset.q, oi = +t.dataset.o;
   if (f === 'qtext') d.questions[qi].text = t.value;

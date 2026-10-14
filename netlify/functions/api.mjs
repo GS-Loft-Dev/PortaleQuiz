@@ -93,6 +93,96 @@ async function getDef(id) {
   if (!base) return null;
   return (await db().get("survey-defs/" + id, { type: "json" })) || base;
 }
+/* ---------------- email di accesso ----------------
+   Variabili su Netlify: MAIL_FROM + RESEND_API_KEY (Resend) oppure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS.
+   SITE_URL facoltativo (altrimenti l'indirizzo del sito Netlify). */
+const escHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const mailConfigured = () => !!process.env.MAIL_FROM && !!(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
+const siteUrl = () => (process.env.SITE_URL || process.env.URL || "").replace(/\/$/, "");
+
+async function sendMails(msgs) {
+  const from = process.env.MAIL_FROM;
+  let sent = 0;
+  const failed = [];
+  if (process.env.RESEND_API_KEY) {
+    for (let i = 0; i < msgs.length; i += 100) {
+      const chunk = msgs.slice(i, i + 100);
+      try {
+        const r = await fetch("https://api.resend.com/emails/batch", {
+          method: "POST",
+          headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
+          body: JSON.stringify(chunk.map((m) => ({ from, to: [m.to], subject: m.subject, html: m.html, text: m.text }))),
+        });
+        if (r.ok) sent += chunk.length;
+        else { failed.push(...chunk.map((m) => m.to)); console.error("Resend:", r.status, await r.text()); }
+      } catch (e) { failed.push(...chunk.map((m) => m.to)); console.error("Resend:", e.message); }
+    }
+    return { sent, failed };
+  }
+  const { default: nodemailer } = await import("nodemailer");
+  const port = Number(process.env.SMTP_PORT || 465);
+  const t = nodemailer.createTransport({
+    host: process.env.SMTP_HOST, port, secure: port === 465, pool: true, maxConnections: 3,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  const res = await Promise.allSettled(msgs.map((m) => t.sendMail({ from, to: m.to, subject: m.subject, html: m.html, text: m.text })));
+  t.close();
+  res.forEach((r, i) => { if (r.status === "fulfilled") sent++; else { failed.push(msgs[i].to); console.error("SMTP:", r.reason?.message); } });
+  return { sent, failed };
+}
+
+// Email con link, email e codice personale (accesso creato o codice rinnovato).
+function accessMail(person, todo, renewed) {
+  const link = siteUrl() || "(link del portale)";
+  const name = nameFromEmail(person.email).split(" ")[0] || "";
+  const subject = renewed ? "Il tuo nuovo codice per Learning · GS LOFT" : "Il tuo accesso a Learning · GS LOFT";
+  const intro = renewed
+    ? "il tuo codice di accesso a Learning è stato rinnovato: quello precedente non funziona più."
+    : "ti è stato creato l'accesso a Learning, il portale GS LOFT per i quiz e le survey interne.";
+  const todoLine = todo.length
+    ? (todo.length === 1 ? `Trovi già da completare: ${todo[0]}.` : `Trovi già da completare: ${todo.join(", ")}.`)
+    : "Quando ci sarà un quiz o una survey da completare lo troverai nel portale.";
+  const text = `Ciao${name ? " " + name : ""},\n\n${intro}\n\nApri: ${link}\nScegli "Accesso" e inserisci:\nEmail: ${person.email}\nCodice di accesso: ${person.code}\n\n${todoLine}\n\nI quiz sono a tempo e si svolgono una sola volta: inizia solo quando hai il tempo indicato a disposizione.\nConserva questa email: il codice ti servirà ogni volta.\n\nGS LOFT`;
+  const row = (k, v, mono) => `<tr><td style="padding:6px 18px 6px 0;color:#6b6b66;font-size:14px">${k}</td><td style="font-size:${mono ? 18 : 15}px;${mono ? "font-family:Menlo,Consolas,monospace;letter-spacing:.14em;" : ""}"><b>${escHtml(v)}</b></td></tr>`;
+  const html = `<div style="background:#f1f3f1;padding:24px 12px;font-family:Helvetica,Arial,sans-serif;color:#111">
+  <div style="max-width:540px;margin:0 auto;border-radius:16px;overflow:hidden;background:#fff;border:1px solid #e3e5e2">
+    <div style="background:#0e0e0e;color:#fff;padding:20px 28px"><span style="font-weight:700;letter-spacing:.06em;font-size:20px">GS·LOFT</span><span style="color:#2ec4b0;font-size:12px;letter-spacing:.16em;font-weight:700;margin-left:12px">LEARNING</span></div>
+    <div style="padding:28px">
+      <p style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:#0a7a6d;font-weight:700">${renewed ? "Nuovo codice" : "Accesso creato"}</p>
+      <h1 style="margin:0 0 14px;font-size:24px;letter-spacing:-.02em">Ciao${name ? " " + escHtml(name) : ""}!</h1>
+      <p style="margin:0 0 18px;line-height:1.5">${escHtml(intro.charAt(0).toUpperCase() + intro.slice(1))}</p>
+      <p style="margin:0 0 6px;color:#6b6b66;font-size:14px">Apri il portale, scegli <b>Accesso</b> e inserisci:</p>
+      <table style="border-collapse:collapse;margin:0 0 22px">${row("Email", person.email)}${row("Codice", person.code, true)}</table>
+      <a href="${escHtml(link)}" style="display:inline-block;background:#2ec4b0;color:#06201c;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:10px">Apri Learning</a>
+      <p style="margin:22px 0 0;font-size:14px;line-height:1.5">${escHtml(todoLine)}</p>
+      <p style="margin:12px 0 0;font-size:13px;color:#6b6b66;line-height:1.5">I quiz sono a tempo e si svolgono una sola volta: inizia solo quando hai il tempo indicato a disposizione. Conserva questa email: il codice ti servirà ogni volta.</p>
+    </div></div></div>`;
+  return { to: person.email, subject, text, html };
+}
+
+// Cosa trova la persona appena entra (quiz e survey attivi), per la riga dell'email.
+async function activeTitles() {
+  const t = (await listQuizzes()).filter((q) => q.active).map((q) => `il quiz "${q.title}"`);
+  for (const base of SURVEYS) if ((await getSurveyConfig(base.id)).active) t.push(`la survey "${(await getDef(base.id)).title}"`);
+  return t;
+}
+
+// Invia l'email di accesso e registra data di invio (o errore) nell'elenco.
+async function sendAccess(emails, renewed = false) {
+  if (!mailConfigured() || !emails.length) return { configured: mailConfigured(), sent: 0, failed: [] };
+  const people = await getPeople();
+  const targets = people.filter((p) => emails.includes(p.email));
+  const todo = await activeTitles();
+  const r = await sendMails(targets.map((p) => accessMail(p, todo, renewed)));
+  const now = Date.now();
+  const list = (await getPeople()).map((p) => {
+    if (!emails.includes(p.email)) return p;
+    return r.failed.includes(p.email) ? { ...p, mailError: now } : { ...p, mailedAt: now, mailError: null };
+  });
+  await db().setJSON("people", { list });
+  return { configured: true, ...r, people: list };
+}
+
 const responseKey = (surveyId, email) => `survey-responses/${surveyId}/${emailKey(email)}`;
 async function listResponses(prefix = "survey-responses/") {
   const store = db();
@@ -324,9 +414,18 @@ export default async (req) => {
       }
     }
 
+    if (route === "admin/people/mail" && method === "POST") { // (re)invia l'email di accesso
+      const email = normEmail(body.email);
+      if (!(await getPeople()).some((p) => p.email === email)) return fail("Email non autorizzata.", 404);
+      if (!mailConfigured()) return fail("L'invio delle email non è configurato.");
+      const r = await sendAccess([email]);
+      if (r.failed.length) return fail("Invio non riuscito. Controlla le impostazioni email e riprova.", 502);
+      return json(r);
+    }
+
     if (route === "admin/people") {
       const people = await getPeople();
-      if (method === "GET") return json({ people });
+      if (method === "GET") return json({ people, mail: mailConfigured() });
       if (method === "POST") {
         const emails = [...new Set((body.emails || []).map(normEmail).filter(Boolean))];
         const bad = emails.filter((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
@@ -335,13 +434,15 @@ export default async (req) => {
         const add = emails.filter((e) => !people.some((p) => p.email === e)).map((email) => ({ email, code: newCode(), addedAt: Date.now() }));
         const list = [...people, ...add];
         await db().setJSON("people", { list });
-        return json({ people: list, added: add.length });
+        const m = body.sendMail !== false && add.length ? await sendAccess(add.map((p) => p.email)) : { configured: mailConfigured(), sent: 0, failed: [] };
+        return json({ people: m.people || list, added: add.length, mail: { configured: m.configured, sent: m.sent, failed: m.failed } });
       }
-      if (method === "PATCH") { // nuovo codice per una persona
+      if (method === "PATCH") { // nuovo codice per una persona (con email, se configurata)
         const email = normEmail(body.email);
-        const list = people.map((p) => (p.email === email ? { ...p, code: newCode() } : p));
+        const list = people.map((p) => (p.email === email ? { ...p, code: newCode(), mailedAt: null } : p));
         await db().setJSON("people", { list });
-        return json({ people: list });
+        const m = body.sendMail !== false ? await sendAccess([email], true) : { configured: mailConfigured(), sent: 0, failed: [] };
+        return json({ people: m.people || list, mail: { configured: m.configured, sent: m.sent, failed: m.failed } });
       }
       if (method === "DELETE") {
         const email = normEmail(url.searchParams.get("email"));

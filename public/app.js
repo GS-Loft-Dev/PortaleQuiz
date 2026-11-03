@@ -759,9 +759,8 @@ function repDonut(voci, tot, centro, sotto) {
     <ul class="rlegenda">${voci.map((v, i) => `<li><i style="background:${v.col || RCOL[i % RCOL.length]}"></i><span>${esc(v.label)}</span><b class="mono">${v.n}</b><small class="mono">${pct(v.n, tot)}%</small></li>`).join('')}</ul></div>`;
 }
 function repBars(voci, tot, col) {
-  const max = Math.max(...voci.map(v => v.n), 1);
-  return `<div class="rbars">${voci.map(v => `<div class="rbar" title="${esc(v.label)}: ${v.n} (${pct(v.n, tot)}%)"><span class="rbar-l">${esc(v.label)}</span>
-    <span class="rbar-g"><i style="width:${Math.max((v.n / max) * 100, v.n ? 1.5 : 0)}%;background:${col || 'var(--accent)'}"></i></span><b class="mono">${v.n}<small> · ${pct(v.n, tot)}%</small></b></div>`).join('')}</div>`;
+  return `<div class="rbars">${voci.map((v, i) => `<div class="rbar${i === 0 ? ' top' : ''}" title="${esc(v.label)}: ${v.n} (${pct(v.n, tot)}%)"><div class="rbar-t"><span>${esc(v.label)}</span><b class="mono">${pct(v.n, tot)}%<small>${v.n}</small></b></div>
+    <span class="rbar-g"><i style="width:${Math.max(pct(v.n, tot), v.n ? 1.5 : 0)}%${col ? ';background:' + col : ''}"></i></span></div>`).join('')}</div>`;
 }
 function repKpi(n, label, sub, tone) { return `<div class="rkpi${tone ? ' ' + tone : ''}"><b>${n}</b><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`; }
 // Tutte le "schede" a cui una domanda si applica: le persone per le sezioni normali, gli strumenti per le sezioni ripetibili.
@@ -836,6 +835,22 @@ function repAttenzione(def, rows) {
     <p class="small muted">Ogni casella indica in quante schede dello strumento compare la situazione: più è scura, più è frequente.</p></div>`;
   return h + '</section>';
 }
+// In sintesi: le frasi chiave, calcolate dalle risposte.
+function repSintesi(def, rows, persone, schede, rep) {
+  const f = [], conQ = id => !!svQ(def, id).id;
+  f.push(['ok', `<b>${rows.length} persone su ${persone}</b> hanno risposto alla survey (${pct(rows.length, persone)}% del team).`]);
+  if (conQ('q3')) { const u = rows.filter(r => ['Sì, spesso', 'Sì, ogni tanto'].includes(r.answers.main.q3)).length; const no = rows.filter(r => r.answers.main.q3 === 'No').length;
+    f.push(['ok', `<b>${u} ${u === 1 ? 'persona usa' : 'persone usano'} l'IA</b> spesso o ogni tanto${no ? `, ${no} ${no === 1 ? 'dichiara' : 'dichiarano'} di non usarla` : ''}.`]); }
+  if (rep && conQ('q4') && schede.length) { const by = {}; for (const r of rows) for (const it of (r.answers.groups[rep.id] || [])) { const n = svToolName(def, it); (by[n] = by[n] || new Set()).add(r.email); }
+    const top = Object.entries(by).sort((a, b) => b[1].size - a[1].size); const pari = top.filter(x => x[1].size === top[0][1].size).map(x => x[0]);
+    f.push(['ok', `Lo strumento più usato è <b>${pari.map(esc).join(', ')}</b> (${top[0][1].size} ${top[0][1].size === 1 ? 'persona' : 'persone'}), su ${top.length} strumenti indicati in ${schede.length} schede.`]); }
+  if (conQ('q10') && rep) { const sch = rows.flatMap(r => (r.answers.groups[rep.id] || []).map(it => ({ r, it })));
+    for (const [tone, label, fn] of REP_RISCHI.slice(0, 2)) { const l = sch.filter(fn); if (l.length) f.push([tone, `<b>${l.length} ${l.length === 1 ? 'scheda' : 'schede'} con ${label.toLowerCase()}</b>: ${[...new Set(l.map(t => svToolName(def, t.it)))].map(esc).join(', ')}. Da verificare con priorità.`]); }
+    const pers = sch.filter(REP_RISCHI[3][2]).length; if (pers) f.push(['warn', `<b>${pers} su ${sch.length} schede</b> riguardano strumenti usati con un account personale.`]); }
+  if (conQ('q17')) { const q = svQ(def, 'q17'); const c = (q.options || []).filter(o => !/non ne sento/i.test(o)).map(o => [o, rows.filter(r => asList(r.answers.main.q17).includes(o)).length]).sort((a, b) => b[1] - a[1]);
+    if (c[0] && c[0][1]) f.push(['ok', `La formazione più richiesta: <b>${esc(c[0][0])}</b> (${c[0][1]} ${c[0][1] === 1 ? 'persona' : 'persone'}).`]); }
+  return `<section class="rsec rsintesi"><div class="rsec-h"><span class="mono">In sintesi</span></div><ul class="rfind">${f.map(([t, x]) => `<li class="${t}"><i></i><p>${x}</p></li>`).join('')}</ul></section>`;
+}
 function reportView() {
   const s = S.surveys.find(x => x.def.id === S.svSel); if (!s) { S.svPage = 'list'; return adminSurveys(); }
   const def = s.def, rows = S.responses.filter(r => r.surveyId === def.id);
@@ -854,8 +869,10 @@ function reportView() {
     <div class="report">
     <header class="rcover"><div class="rcover-top"><span class="logo rlogo" role="img" aria-label="GS LOFT"></span><span class="mono">Resoconto survey</span></div>
       <div class="rcover-mid"><p class="mono rkick">Portale Quiz &amp; Survey · GS LOFT</p><h2>${esc(def.title)}</h2><p class="rcover-sub">${esc(def.subtitle || '')}</p></div>
+      ${rows.length ? `<div class="rcover-kpi"><div><b>${pct(rows.length, persone)}<small>%</small></b><span>del team ha risposto<br>${rows.length} persone su ${persone}</span></div>${usa != null ? `<div><b>${pct(usa, rows.length)}<small>%</small></b><span>usa l'IA spesso<br>o ogni tanto</span></div>` : ''}${nStr != null ? `<div><b>${nStr}</b><span>strumenti di IA<br>indicati</span></div>` : ''}</div>` : ''}
       <div class="rcover-meta"><div><small class="mono">Generato il</small><b>${gg(Date.now())}</b></div>${date.length ? `<div><small class="mono">Risposte</small><b>dal ${gg(date[0])} al ${gg(date[date.length - 1])}</b></div>` : ''}<div><small class="mono">Stato</small><b>${s.active ? 'Survey aperta' : 'Survey chiusa'}</b></div></div></header>`;
   if (!rows.length) return h + `<div class="empty"><h3>Nessuna risposta ancora</h3><p>Il resoconto si prepara appena arriva la prima risposta.</p></div></div></div>`;
+  h += repSintesi(def, rows, persone, schede, rep);
   // 01 · panoramica: numeri chiave, partecipazione, aree, uso dell'IA
   h += `<section class="rsec"><div class="rsec-h"><span class="mono">01</span><h3>Panoramica</h3></div><div class="rkpis">
     ${repKpi(`${rows.length}<small>/${persone}</small>`, 'Persone che hanno risposto', pct(rows.length, persone) + '% del team')}

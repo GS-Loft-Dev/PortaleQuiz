@@ -897,3 +897,39 @@ body:not(.is-admin) header.top .wrap{max-width:920px}
   body.is-admin main.wrap,main.wrap{max-width:none!important;padding:0!important;margin:0!important}
   main.enter *{animation:none!important}
 }
+
+/* resoconto · impaginazione PDF robusta (v2): margini interni che non dipendono dalle impostazioni di stampa */
+.rtexts{display:block;columns:2;column-gap:10px}
+.rtexts li{display:block;margin:0 0 10px;break-inside:avoid;-webkit-column-break-inside:avoid}
+@media (max-width:760px){.rtexts{columns:1}}
+@media print{
+  @page{size:A4;margin:0}
+  @page :first{margin:0}
+  .report{padding:14mm 13mm 14mm;-webkit-box-decoration-break:clone;box-decoration-break:clone;gap:12px}
+  .rcover{margin:-14mm -13mm 6mm;height:297mm;border-radius:0;padding:20mm 18mm 18mm}
+  .rq,.rq.testo{break-inside:auto}
+  .rq-h{break-after:avoid}
+  .rq .rdonut,.rq .rlegenda,.rbar,.rtexts li,.rkpi,.rbox,.ratt-i,.rfind li{break-inside:avoid}
+  .rq{-webkit-box-decoration-break:clone;box-decoration-break:clone}
+  .rsec{padding:2px 0 8px}
+  .rsec-h{margin-top:4px}
+  .rtexts{columns:2}
+}
+/* print v3: niente colonne CSS in stampa (overflow a destra), card brevi intere */
+@media print{
+  .rtexts{columns:auto;column-count:1;display:grid;grid-template-columns:1fr;gap:6px}
+  .rtexts li{margin:0}
+  .rq{-webkit-box-decoration-break:slice;box-decoration-break:slice;break-inside:avoid}
+  .rq.testo{break-inside:auto}
+}
+@media print{.rcover{height:294mm;break-inside:avoid;break-after:page;margin-bottom:0}}
+@media print{
+  @page{size:A4;margin:0;@bottom-left{content:none}@bottom-right{content:none}}
+  @page :first{margin:0;@bottom-left{content:none}@bottom-right{content:none}}
+}
+@media print{
+  @page{size:A4;margin:13mm 0 14mm}
+  @page :first{margin:0}
+  .report{padding:0 13mm;-webkit-box-decoration-break:slice;box-decoration-break:slice}
+  .rcover{margin:0 -13mm 0;height:296.5mm}
+}

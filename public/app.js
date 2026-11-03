@@ -899,6 +899,15 @@ function repBars(voci, tot, col) {
   return `<div class="rbars">${voci.map((v, i) => `<div class="rbar${i === 0 ? ' top' : ''}" title="${esc(v.label)}: ${v.n} (${pct(v.n, tot)}%)"><div class="rbar-t"><span>${esc(v.label)}</span><b class="mono">${pct(v.n, tot)}%<small>${v.n}</small></b></div>
     <span class="rbar-g"><i style="width:${Math.max(pct(v.n, tot), v.n ? 1.5 : 0)}%${col ? ';background:' + col : ''}"></i></span></div>`).join('')}</div>`;
 }
+// Strumenti di una scheda: il testo libero di "Altro" ("ChatGPT - Claude", "chatgpt, gemini") vale come più strumenti, riallineati alle opzioni.
+function repTools(def, it) {
+  const q = svQ(def, 'q4'), opts = q.options || [];
+  if (it.q4 !== q.other) return [it.q4 || '—'];
+  const base = o => o.toLowerCase().split(' (')[0].trim();
+  const parti = String(it.q4__altro || 'Altro').split(/\s+[-–+&]\s+|\s*[,;\/+]\s*|\s+e\s+/i).map(x => x.trim()).filter(Boolean);
+  const out = parti.map(p => opts.find(o => base(o) === p.toLowerCase()) || (p[0].toUpperCase() + p.slice(1)));
+  return [...new Set(out.length ? out : ['Altro'])];
+}
 function repKpi(n, label, sub, tone) { return `<div class="rkpi${tone ? ' ' + tone : ''}"><b>${n}</b><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`; }
 // Tutte le "schede" a cui una domanda si applica: le persone per le sezioni normali, gli strumenti per le sezioni ripetibili.
 function repContainers(def, sec, rows) {
@@ -935,22 +944,37 @@ function repQuestion(def, sec, q, conts) {
   } else h += repTexts('', ans.map(c => ({ c, t: c.ans[q.id] })));
   return h + '</article>';
 }
+// Risposte aperte: le brevi uguali diventano etichette con il conteggio, le lunghe restano citazioni (senza doppioni).
 function repTexts(titolo, items) {
-  const chi = c => S.repNomi ? `<span class="rchi">${esc(svName(c.r))}</span>` : '';
-  return `${titolo ? `<p class="small rtit">${esc(titolo)}</p>` : ''}<ul class="rtexts">${items.map(x => `<li>${esc(String(x.t).trim())}${chi(x.c)}</li>`).join('')}</ul>`;
+  const g = new Map();
+  for (const x of items) {
+    const t = String(x.t ?? '').trim().replace(/\s+/g, ' '); if (!t) continue;
+    const k = t.toLowerCase().replace(/[.!;:]+$/, '');
+    const e = g.get(k) || g.set(k, { t: t[0].toUpperCase() + t.slice(1), n: 0, chi: [] }).get(k);
+    e.n++; if (x.c) e.chi.push(svName(x.c.r));
+  }
+  const v = [...g.values()];
+  const brevi = v.filter(e => e.t.length <= 48).sort((a, b) => b.n - a.n || a.t.localeCompare(b.t, 'it'));
+  const lunghe = v.filter(e => e.t.length > 48).sort((a, b) => b.n - a.n);
+  const nomi = e => S.repNomi && e.chi.length ? `<span class="rchi">${[...new Set(e.chi)].map(esc).join(', ')}</span>` : '';
+  const n = e => e.n > 1 ? `<b class="mono rdup">×${e.n}</b>` : '';
+  let h = titolo ? `<p class="small rtit">${esc(titolo)}</p>` : '';
+  if (brevi.length) h += `<ul class="rchips">${brevi.map(e => `<li><span>${esc(e.t)}</span>${n(e)}${nomi(e)}</li>`).join('')}</ul>`;
+  if (lunghe.length) h += `<ul class="rtexts">${lunghe.map(e => `<li><p>${esc(e.t)}${n(e)}</p>${nomi(e)}</li>`).join('')}</ul>`;
+  return h;
 }
 // Punti di attenzione e mappa strumenti × rischi della survey AI @ GS LOFT (solo se la survey contiene quelle domande).
 const REP_RISCHI = [
-  ['bad', 'Dati sanitari dei clienti', t => asList(t.it.q10).some(v => v.startsWith('Informazioni sulla salute'))],
-  ['bad', 'Credenziali o password', t => asList(t.it.q10).some(v => v.startsWith('Credenziali'))],
-  ['warn', 'Nomi o recapiti di clienti', t => asList(t.it.q10).some(v => v.startsWith('Nomi o recapiti'))],
-  ['warn', 'Account personale', t => asList(t.it.q5).some(v => v.startsWith('Account personale'))],
-  ['warn', 'Account personale anche per uso privato', t => t.it.q6 === 'Anche per finalità private'],
-  ['warn', 'Iniziato di propria iniziativa', t => t.it.q7 === 'Ho iniziato a usarlo di mia iniziativa'],
-  ['warn', 'Collegato ad archivi con dati dei clienti', t => asList(t.it.q11).some(v => /HubSpot|Gestionale|dati dei clienti/.test(v))],
-  ['warn', 'Controllo umano scarso o assente', t => ['Solo qualche volta', 'No'].includes(t.it.q13)],
-  ['warn', 'Decisioni che riguardano persone', t => asList(t.it.q14).some(v => v.startsWith('Sì'))],
-  ['warn', 'Contatto diretto con persone esterne', t => asList(t.it.q15).some(v => /invia messaggi|chiamate/.test(v))],
+  ['bad', 'Dati sanitari dei clienti', t => asList(t.it.q10).some(v => v.startsWith('Informazioni sulla salute')), 'Dati sanitari'],
+  ['bad', 'Credenziali o password', t => asList(t.it.q10).some(v => v.startsWith('Credenziali')), 'Credenziali'],
+  ['warn', 'Nomi o recapiti di clienti', t => asList(t.it.q10).some(v => v.startsWith('Nomi o recapiti')), 'Recapiti clienti'],
+  ['warn', 'Account personale', t => asList(t.it.q5).some(v => v.startsWith('Account personale')), 'Account personale'],
+  ['warn', 'Account personale anche per uso privato', t => t.it.q6 === 'Anche per finalità private', 'Uso privato'],
+  ['warn', 'Iniziato di propria iniziativa', t => t.it.q7 === 'Ho iniziato a usarlo di mia iniziativa', 'Propria iniziativa'],
+  ['warn', 'Collegato ad archivi con dati dei clienti', t => asList(t.it.q11).some(v => /HubSpot|Gestionale|dati dei clienti/.test(v)), 'Archivi clienti'],
+  ['warn', 'Controllo umano scarso o assente', t => ['Solo qualche volta', 'No'].includes(t.it.q13), 'Poco controllo'],
+  ['warn', 'Decisioni che riguardano persone', t => asList(t.it.q14).some(v => v.startsWith('Sì')), 'Decisioni su persone'],
+  ['warn', 'Contatto diretto con persone esterne', t => asList(t.it.q15).some(v => /invia messaggi|chiamate/.test(v)), 'Contatti esterni'],
 ];
 function repAttenzione(def, rows) {
   const si = def.sections.find(s => s.repeat); if (!si || !svQ(def, 'q10').id) return '';
@@ -960,13 +984,13 @@ function repAttenzione(def, rows) {
   let h = `<section class="rsec"><div class="rsec-h"><span class="mono">02</span><h3>Punti di attenzione</h3></div>`;
   if (!punti.length) return h + `<p class="small muted">Nessun punto di attenzione nelle ${schede.length} schede inviate.</p></section>`;
   h += `<p class="small muted">Schede strumento in cui compare la situazione, su ${schede.length} schede in totale. <b class="rleg bad">Critico</b> <b class="rleg warn">Da verificare</b></p>
-    <div class="ratt">${punti.map(p => { const tools = [...new Set(p.l.map(t => svToolName(def, t.it)))];
+    <div class="ratt">${punti.map(p => { const tools = [...new Set(p.l.flatMap(t => repTools(def, t.it)))];
       return `<div class="ratt-i ${p.tone}"><span class="ratt-ic">${ic[p.tone]}</span><div><span>${esc(p.label)}</span><small>${tools.map(esc).join(' · ')}${S.repNomi ? ` — ${[...new Set(p.l.map(t => svName(t.r)))].map(esc).join(', ')}` : ''}</small></div><b class="mono">${p.l.length}<small>/${schede.length}</small></b></div>`; }).join('')}</div>`;
   // mappa strumenti × rischi: intensità del verde = quota delle schede di quello strumento
-  const by = {}; for (const t of schede) (by[svToolName(def, t.it)] = by[svToolName(def, t.it)] || []).push(t);
+  const by = {}; for (const t of schede) for (const n of repTools(def, t.it)) (by[n] = by[n] || []).push(t);
   const tools = Object.entries(by).sort((a, b) => b[1].length - a[1].length);
   const cols = REP_RISCHI.filter(([, , f]) => schede.some(f));
-  h += `<div class="rmap-wrap"><table class="rmap"><thead><tr><th>Strumento</th><th class="num">Schede</th>${cols.map(([tone, l]) => `<th class="${tone}"><span>${esc(l)}</span></th>`).join('')}</tr></thead><tbody>
+  h += `<div class="rmap-wrap"><table class="rmap"><thead><tr><th>Strumento</th><th class="num">Schede</th>${cols.map(([tone, l, , corto]) => `<th class="${tone}" title="${esc(l)}"><span>${esc(corto || l)}</span></th>`).join('')}</tr></thead><tbody>
     ${tools.map(([n, l]) => `<tr><td>${esc(n)}</td><td class="num">${l.length}</td>${cols.map(([tone, , f]) => { const k = l.filter(f).length, a = k / l.length;
       return `<td class="num c ${tone}" style="--a:${k ? (0.2 + a * 0.45).toFixed(2) : 0}">${k || ''}</td>`; }).join('')}</tr>`).join('')}</tbody></table>
     <p class="small muted">Ogni casella indica in quante schede dello strumento compare la situazione: più è scura, più è frequente.</p></div>`;
@@ -978,11 +1002,11 @@ function repSintesi(def, rows, persone, schede, rep) {
   f.push(['ok', `<b>${rows.length} persone su ${persone}</b> hanno risposto alla survey (${pct(rows.length, persone)}% del team).`]);
   if (conQ('q3')) { const u = rows.filter(r => ['Sì, spesso', 'Sì, ogni tanto'].includes(r.answers.main.q3)).length; const no = rows.filter(r => r.answers.main.q3 === 'No').length;
     f.push(['ok', `<b>${u} ${u === 1 ? 'persona usa' : 'persone usano'} l'IA</b> spesso o ogni tanto${no ? `, ${no} ${no === 1 ? 'dichiara' : 'dichiarano'} di non usarla` : ''}.`]); }
-  if (rep && conQ('q4') && schede.length) { const by = {}; for (const r of rows) for (const it of (r.answers.groups[rep.id] || [])) { const n = svToolName(def, it); (by[n] = by[n] || new Set()).add(r.email); }
+  if (rep && conQ('q4') && schede.length) { const by = {}; for (const r of rows) for (const it of (r.answers.groups[rep.id] || [])) for (const n of repTools(def, it)) (by[n] = by[n] || new Set()).add(r.email);
     const top = Object.entries(by).sort((a, b) => b[1].size - a[1].size); const pari = top.filter(x => x[1].size === top[0][1].size).map(x => x[0]);
     f.push(['ok', `Lo strumento più usato è <b>${pari.map(esc).join(', ')}</b> (${top[0][1].size} ${top[0][1].size === 1 ? 'persona' : 'persone'}), su ${top.length} strumenti indicati in ${schede.length} schede.`]); }
   if (conQ('q10') && rep) { const sch = rows.flatMap(r => (r.answers.groups[rep.id] || []).map(it => ({ r, it })));
-    for (const [tone, label, fn] of REP_RISCHI.slice(0, 2)) { const l = sch.filter(fn); if (l.length) f.push([tone, `<b>${l.length} ${l.length === 1 ? 'scheda' : 'schede'} con ${label.toLowerCase()}</b>: ${[...new Set(l.map(t => svToolName(def, t.it)))].map(esc).join(', ')}. Da verificare con priorità.`]); }
+    for (const [tone, label, fn] of REP_RISCHI.slice(0, 2)) { const l = sch.filter(fn); if (l.length) f.push([tone, `<b>${l.length} ${l.length === 1 ? 'scheda' : 'schede'} con ${label.toLowerCase()}</b>: ${[...new Set(l.flatMap(t => repTools(def, t.it)))].map(esc).join(', ')}. Da verificare con priorità.`]); }
     const pers = sch.filter(REP_RISCHI[3][2]).length; if (pers) f.push(['warn', `<b>${pers} su ${sch.length} schede</b> riguardano strumenti usati con un account personale.`]); }
   if (conQ('q17')) { const q = svQ(def, 'q17'); const c = (q.options || []).filter(o => !/non ne sento/i.test(o)).map(o => [o, rows.filter(r => asList(r.answers.main.q17).includes(o)).length]).sort((a, b) => b[1] - a[1]);
     if (c[0] && c[0][1]) f.push(['ok', `La formazione più richiesta: <b>${esc(c[0][0])}</b> (${c[0][1]} ${c[0][1] === 1 ? 'persona' : 'persone'}).`]); }
@@ -998,7 +1022,7 @@ function reportView() {
   const schede = rep ? rows.flatMap(r => r.answers.groups[rep.id] || []) : [];
   const conQ = id => !!svQ(def, id).id;
   const usa = conQ('q3') ? rows.filter(r => ['Sì, spesso', 'Sì, ogni tanto'].includes(r.answers.main.q3)).length : null;
-  const nStr = rep && conQ('q4') ? new Set(schede.map(it => svToolName(def, it))).size : null;
+  const nStr = rep && conQ('q4') ? new Set(schede.flatMap(it => repTools(def, it))).size : null;
   const sanitari = conQ('q10') ? schede.filter(it => asList(it.q10).some(v => v.startsWith('Informazioni sulla salute'))).length : null;
   let h = `<div class="stack"><div class="row noprint"><button class="btn ghost sm" data-act="svres" data-id="${esc(def.id)}">← Risposte</button><span class="spacer"></span>
       <label class="check small"><input type="checkbox" data-act="repnomi" ${S.repNomi ? 'checked' : ''}>Mostra i nomi accanto alle risposte</label>
@@ -1026,7 +1050,7 @@ function reportView() {
   h += repAttenzione(def, rows);
   if (rep && conQ('q4')) {
     const by = {};
-    for (const r of rows) for (const it of (r.answers.groups[rep.id] || [])) { const n = svToolName(def, it); (by[n] = by[n] || new Set()).add(r.email); }
+    for (const r of rows) for (const it of (r.answers.groups[rep.id] || [])) for (const n of repTools(def, it)) (by[n] = by[n] || new Set()).add(r.email);
     const top = Object.entries(by).map(([label, set]) => ({ label, n: set.size })).sort((a, b) => b.n - a.n);
     h += `<section class="rsec"><div class="rsec-h"><span class="mono">03</span><h3>Strumenti più usati</h3></div><p class="small muted">Persone che usano lo strumento, su ${rows.length} risposte.</p>${repBars(top, rows.length)}</section>`;
   }

@@ -1,10 +1,10 @@
-// Quiz lavoratori GS LOFT — interfaccia (vanilla JS). Tutta la logica sensibile è nel server (/api).
+// Quiz Dipendenti GS LOFT — interfaccia (vanilla JS). Tutta la logica sensibile è nel server (/api).
 (function () {
 const app = document.getElementById('app');
 const S = {
   ready: false, role: null, email: null,
   quizzes: [], people: [], attempts: [],
-  view: 'home', tab: 'overview', draft: null, draftErr: null, sel: null, run: null, preview: false, lastResult: null,
+  view: 'home', tab: 'quiz', draft: null, draftErr: null, sel: null, run: null, preview: false, lastResult: null,
   resFilter: 'all', openDetail: null, askDel: null, askReset: null, askRm: null,
   saving: false, loginRole: 'employee', loginErr: null, accErr: null,
   // survey
@@ -19,44 +19,9 @@ const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { c
 const L = i => String.fromCharCode(65 + i);
 const pad2 = n => String(n).padStart(2, '0');
 const fmtT = ms => { ms = Math.max(0, ms); const s = Math.ceil(ms / 1000); return pad2(Math.floor(s / 60)) + ':' + pad2(s % 60); };
-const fmtShort = ts => ts ? new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtD = ts => ts ? new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtDur = ms => { if (!(ms >= 0)) return '—'; const m = Math.floor(ms / 60000), s = Math.round((ms % 60000) / 1000); return m + 'm ' + pad2(s) + 's'; };
-/* icone (tratto, colore dal testo) */
-const ICON = {
-  clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-  list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>',
-  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-  arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
-  doc: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
-};
-Object.assign(ICON, {
-  eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
-  trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
-  home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg>',
-  chart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
-  key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg>',
-  users: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.9 2.6 2.6 3 5.2"/></svg>',
-  plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
-});
-const ic = (n) => `<span class="ic">${ICON[n]}</span>`;
-/* componenti grafici dell'area responsabile */
-const initials = (name, email) => { const src = (name && name !== 'Senza nome' ? name : (email || '?').split('@')[0]).replace(/[._-]+/g, ' ').trim();
-  return src.split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?'; };
-const avatar = (name, email) => `<span class="av" aria-hidden="true">${esc(initials(name, email))}</span>`;
-const ring = (pct, tone = '') => `<span class="ring ${tone}" style="--p:${Math.max(0, Math.min(100, pct))}" aria-hidden="true"><span>${pct}%</span></span>`;
-function kpi(label, value, sub = '', pct = null, tone = '') {
-  return `<div class="kpi ${tone}"><div class="kpi-t"><span class="kpi-l">${label}</span><b class="kpi-v">${value}</b>${sub ? `<span class="kpi-s">${sub}</span>` : ''}</div>${pct == null ? '' : ring(pct, tone)}</div>`;
-}
-const pageHead = (eyebrow, title, sub, actions = '') => `<div class="phead"><div><p class="eyebrow">${eyebrow}</p><h2>${title}</h2>${sub ? `<p class="muted small">${sub}</p>` : ''}</div>${actions ? `<div class="phead-a">${actions}</div>` : ''}</div>`;
-function toast(msg) { const t = document.getElementById('toast'); t.innerHTML = `<span class="ic">${ICON.check}</span><span></span>`; t.lastChild.textContent = msg;
-  t.hidden = false; t.classList.remove('show'); void t.offsetWidth; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; t.classList.remove('show'); }, 2800); }
-/* nome leggibile dall'email: mario.rossi@… → Mario */
-const firstName = email => { const w = String(email || '').split('@')[0].split(/[._-]+/)[0] || ''; return w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ''; };
-const timeAgo = ts => { if (!ts) return ''; const m = Math.round((Date.now() - ts) / 60000);
-  if (m < 1) return 'adesso'; if (m < 60) return `${m} min fa`; const h = Math.round(m / 60); if (h < 24) return `${h} ${h === 1 ? 'ora' : 'ore'} fa`;
-  const d = Math.round(h / 24); return d === 1 ? 'ieri' : `${d} giorni fa`; };
-const today = () => new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2800); }
 
 async function api(path, { method = 'GET', body, keepalive } = {}) {
   const res = await fetch('/api/' + path, {
@@ -85,7 +50,7 @@ async function boot() {
 async function loadAll() {
   if (S.role === 'admin') {
     const [q, p, r, sv, sr] = await Promise.all([api('admin/quizzes'), api('admin/people'), api('admin/results'), api('admin/surveys'), api('admin/survey-responses')]);
-    S.quizzes = q.quizzes; S.people = p.people; S.mailOn = !!p.mail; S.attempts = r.attempts; S.surveys = sv.surveys; S.locked = sv.locked || {}; S.responses = sr.responses;
+    S.quizzes = q.quizzes; S.people = p.people; S.attempts = r.attempts; S.surveys = sv.surveys; S.locked = sv.locked || {}; S.responses = sr.responses;
   } else if (S.role === 'employee') {
     const [q, sv] = await Promise.all([api('quizzes'), api('surveys')]);
     S.quizzes = q.quizzes; S.surveys = sv.surveys;
@@ -94,17 +59,8 @@ async function loadAll() {
 async function refresh() { try { await loadAll(); render(); } catch (e) { if (e.message !== '401') toast(e.message); } }
 
 /* ---------- render ---------- */
-function confetti() {
-  const r = (a, b) => (a + Math.random() * (b - a)).toFixed(2);
-  return `<div class="confetti" aria-hidden="true">${Array.from({ length: 34 }, () => `<i style="left:${r(2, 98)}%;--d:${r(0, .5)}s;--t:${r(1.6, 2.8)}s;--x:${r(-60, 60)}px;--r:${r(-540, 540)}deg;--y:${r(260, 460)}px"></i>`).join('')}</div>`;
-}
-function skeleton() {
-  return `<header class="top"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span></div></div></header>
-  <main class="wrap"><div class="skel" aria-label="Caricamento"><i class="sk sk-t"></i><i class="sk sk-h"></i><div class="sk-row"><i class="sk sk-c"></i><i class="sk sk-c"></i><i class="sk sk-c"></i></div></div></main>`;
-}
-let lastScreen = '';
 function render() {
-  if (!S.ready) { app.innerHTML = skeleton(); return; }
+  if (!S.ready) { app.innerHTML = '<div class="loading">Caricamento…</div>'; return; }
   let h;
   if (!S.role) h = loginView();
   else if (S.view === 'run') h = runView();
@@ -114,49 +70,32 @@ function render() {
   else if (S.view === 'svdone') h = surveyDoneView();
   else if (S.role === 'admin') {
     if (S.view === 'edit') h = editView();
-    else if (S.tab === 'overview') h = overviewView();
     else if (S.tab === 'results') h = resultsView();
     else if (S.tab === 'access') h = accessView();
-    else if (S.tab === 'survey') h = S.svPage === 'responses' ? responsesView() : S.svPage === 'edit' ? svEditView() : adminSurveys();
+    else if (S.tab === 'survey') h = S.svPage === 'responses' ? responsesView() : S.svPage === 'report' ? reportView() : S.svPage === 'edit' ? svEditView() : adminSurveys();
     else h = adminHome();
   } else h = employeeHome();
   // ridisegnare la pagina toglie il focus: lo rimettiamo sul campo in cui si stava scrivendo
   const focusId = document.activeElement && document.activeElement.id;
-  const wide = S.role === 'admin' && !['run', 'intro', 'done', 'survey', 'svdone'].includes(S.view);
-  document.body.classList.toggle('is-admin', wide);
-  const screen = [S.role, S.view, S.tab, S.svPage, S.loginRole === 'admin' ? 'a' : 'e'].join('|');
-  const enter = screen !== lastScreen; lastScreen = screen;
-  const mainH = `<main class="wrap${enter ? ' enter' : ''}">` + h + '</main>';
-  app.innerHTML = `<div class="bg-fx" aria-hidden="true"><i></i><i></i><i></i></div>` + header() + mainH;
-  if (enter) countUp();
+  app.innerHTML = header() + '<main class="wrap">' + h + '</main>';
   if (focusId) { const el = document.getElementById(focusId); if (el) el.focus({ preventScroll: true }); }
 }
 function header() {
-  const adm = S.role === 'admin' && !['intro', 'done', 'run', 'survey', 'svdone'].includes(S.view);
-  const cur = S.view === 'edit' ? 'quiz' : S.tab;
-  const items = [['overview', 'home', 'Panoramica'], ['quiz', 'list', 'Quiz', (S.quizzes || []).length], ['survey', 'doc', 'Survey', (S.surveys || []).length], ['results', 'chart', 'Risultati'], ['access', 'users', 'Accessi', (S.people || []).length]];
-  const tabs = adm ? `<nav class="tabs" aria-label="Menu">${items.map(([v, i, l, n]) => `<button class="tab" data-act="tab" data-v="${v}" aria-current="${cur === v}">${ic(i)}<span>${l}</span>${n ? `<em>${n}</em>` : ''}</button>`).join('')}</nav>` : '';
-  const sub = S.role === 'admin' ? 'Responsabile' : S.role === 'employee' ? esc(S.email) : 'Quiz &amp; survey';
-  const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout" title="Esci">${S.role === 'admin' ? '<span class="lo-av">R</span>' : ''}<span>Esci</span></button>` : '';
-  return `<header class="top${adm ? ' has-tabs' : ''}"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
-    <h1 class="sub"><b>Learning</b><span>${sub}</span></h1></div>${tabs}${out}</div></header>`;
+  const tabs = S.role === 'admin' && !['edit', 'intro', 'done', 'run', 'survey', 'svdone'].includes(S.view) && S.svPage !== 'edit' ? `<nav class="tabs">
+    <button class="tab" data-act="tab" data-v="quiz" aria-current="${S.tab === 'quiz'}">Quiz</button>
+    <button class="tab" data-act="tab" data-v="survey" aria-current="${S.tab === 'survey'}">Survey</button>
+    <button class="tab" data-act="tab" data-v="results" aria-current="${S.tab === 'results'}">Risultati</button>
+    <button class="tab" data-act="tab" data-v="access" aria-current="${S.tab === 'access'}">Accessi</button></nav>` : '';
+  const out = S.role && S.view !== 'run' ? `<button class="logout" data-act="logout"${tabs ? '' : ' style="margin-left:auto"'}>Esci</button>` : '';
+  const sub = S.role === 'admin' ? 'Area responsabile' : S.role === 'employee' ? esc(S.email) : '';
+  return `<header class="top"><div class="wrap"><div class="brand"><span class="logo" role="img" aria-label="GS LOFT"></span>
+    <h1 class="sub">PORTALE QUIZ &amp; SURVEY<br>${sub}</h1></div>${tabs}${out}</div></header>`;
 }
 
 /* ----- accesso ----- */
 function loginView() {
   const emp = S.loginRole === 'employee';
-  return `<div class="login-wrap">
-  <div class="login-hero" aria-hidden="true">
-    <p class="eyebrow">GS LOFT · LEARNING</p>
-    <p class="hero-t">Quiz &amp; survey<br><span>per il team</span></p>
-    <p class="hero-s">Quiz e Survey interne.<br>Il portale di "Learning" di GS LOFT!</p>
-    <div class="stack3d">
-      <div class="fc fc3"><span class="fc-k">Survey</span><span class="fc-l"></span><span class="fc-l s"></span></div>
-      <div class="fc fc2"><span class="fc-k">Quiz</span><span class="fc-l"></span><span class="fc-l s"></span><span class="fc-l xs"></span></div>
-      <div class="fc fc1"><span class="fc-k">Domanda 01 / 115</span><span class="fc-q"></span><span class="fc-o on"><i>A</i></span><span class="fc-o"><i>B</i></span><span class="fc-o"><i>C</i></span></div>
-    </div>
-  </div>
-  <form class="card stack login tilt" id="loginForm" novalidate>
+  return `<form class="card stack login" id="loginForm" novalidate>
     <div><h2>Accedi</h2><p class="muted small">${emp ? "Usa l'email aziendale e il tuo codice di accesso." : 'Area riservata ai responsabili.'}</p></div>
     <div class="seg" role="group" aria-label="Tipo di accesso">
       <button type="button" data-act="lrole" data-v="employee" aria-pressed="${emp}">Accesso</button>
@@ -165,7 +104,7 @@ function loginView() {
     <label class="f">Codice di accesso<input type="text" id="lg-c" autocomplete="one-time-code" class="mono" style="text-transform:uppercase;letter-spacing:.12em" placeholder="Es. K7PM3Q"></label>`
     : `<label class="f">Password<input type="password" id="lg-p" autocomplete="current-password"></label>`}
     ${S.loginErr ? `<div class="err">${esc(S.loginErr)}</div>` : ''}
-    <button class="btn primary" type="submit" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Verifica…' : 'Entra'}</button></form></div>`;
+    <button class="btn primary" type="submit" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Verifica…' : 'Entra'}</button></form>`;
 }
 async function doLogin() {
   const emp = S.loginRole === 'employee';
@@ -175,7 +114,7 @@ async function doLogin() {
   S.saving = true; S.loginErr = null; render();
   try {
     const r = await api('login', { method: 'POST', body });
-    S.role = r.role; S.email = r.email || null; S.view = 'home'; S.tab = r.role === 'admin' ? 'overview' : 'quiz';
+    S.role = r.role; S.email = r.email || null; S.view = 'home'; S.tab = 'quiz';
     await loadAll();
   } catch (e) { S.loginErr = e.message; }
   S.saving = false; render();
@@ -189,114 +128,49 @@ function attemptRows() {
     const n = a.total || (quiz ? quiz.questions.length : 0);
     const score = done ? a.score : 0;
     const pct = done && n ? Math.round(score / n * 100) : 0;
-    const fromEmail = String(a.email || '').split('@')[0].split(/[._\-+]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.name || fromEmail || 'Senza nome' };
+    return { a, quiz, done, n, score, pct, pass: quiz ? pct >= quiz.passPct : false, name: a.name || 'Senza nome' };
   }).sort((x, y) => (y.a.startedAt || 0) - (x.a.startedAt || 0));
-}
-function overviewView() {
-  const rows = attemptRows();
-  const live = S.quizzes.filter(q => q.active).length, svLive = S.surveys.filter(x => x.active).length;
-  const doneAll = rows.filter(r => r.done), avgAll = doneAll.length ? Math.round(doneAll.reduce((a, r) => a + r.pct, 0) / doneAll.length) : 0;
-  const acts = [...rows.map(r => ({ t: r.done ? r.a.finishedAt : r.a.startedAt, who: r.name, email: r.a.email, what: r.done ? `ha consegnato <b>${esc(r.quiz ? r.quiz.title : 'un quiz')}</b>` : `ha iniziato <b>${esc(r.quiz ? r.quiz.title : 'un quiz')}</b>`, tone: r.done ? (r.pass ? 'ok' : 'bad') : 'warn', tag: r.done ? r.pct + '%' : 'in corso' })),
-    ...S.responses.map(x => { const sv = S.surveys.find(y => y.def.id === x.surveyId); return { t: x.updatedAt, who: x.name || '', email: x.email, what: `ha inviato <b>${esc(sv ? sv.def.title : 'una survey')}</b>`, tone: 'acc', tag: 'survey' }; })]
-    .filter(a => a.t).sort((a, b) => b.t - a.t).slice(0, 7);
-  // cose da fare per il responsabile, in ordine logico
-  const steps = [
-    { ok: S.people.length > 0, t: 'Autorizza le persone', d: S.people.length ? `${S.people.length} con accesso` : 'Aggiungi le email del team', act: 'tab', v: 'access' },
-    { ok: S.quizzes.length > 0, t: 'Crea un quiz', d: S.quizzes.length ? `${S.quizzes.length} creati` : 'Da zero o incollando le domande', act: S.quizzes.length ? 'tab' : 'new', v: 'quiz' },
-    { ok: live + svLive > 0, t: 'Attiva quiz o survey', d: live + svLive ? `${live} quiz e ${svLive} survey attivi` : 'Diventano visibili al team', act: 'tab', v: 'quiz' },
-    { ok: doneAll.length + S.responses.length > 0, t: 'Leggi i risultati', d: doneAll.length ? `${doneAll.length} consegne, media ${avgAll}%` : 'Compaiono man mano', act: 'tab', v: 'results' },
-  ];
-  const hr = new Date().getHours(), saluto = hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
-  const inCorso = rows.filter(r => !r.done).length;
-  let h = `<div class="stack"><section class="hero-admin">
-      <div class="ha-txt"><p class="eyebrow"><span class="pulse"></span>${esc(today())}</p><h2>${saluto}.</h2>
-        <p class="ha-sub">${doneAll.length ? `<b>${doneAll.length}</b> ${doneAll.length === 1 ? 'consegna' : 'consegne'} con media <b>${avgAll}%</b>` : 'Nessuna consegna ancora'}${inCorso ? ` · <b>${inCorso}</b> in corso` : ''}. ${live + svLive ? `${live + svLive} ${live + svLive === 1 ? 'attività attiva' : 'attività attive'} per il team.` : 'Attiva un quiz o una survey per iniziare.'}</p>
-        <div class="row ha-act"><button class="btn primary lg" data-act="new">${ic('plus')}Nuovo quiz</button><button class="btn glass lg" data-act="tab" data-v="results">${ic('chart')}Vedi risultati</button></div></div>
-      <div class="ha-scene" aria-hidden="true"><div class="ha-stage">
-        <div class="hc hc1"><span class="hc-k">Media</span><div class="hc-ring" style="--p:${avgAll}"><b>${avgAll}%</b></div></div>
-        <div class="hc hc2"><span class="hc-k">Consegne</span><div class="hc-bars">${[40, 65, 50, 85, 70, 95, 60].map(x => `<i style="height:${x}%"></i>`).join('')}</div></div>
-        <div class="hc hc3"><span class="hc-k">Team</span><b class="hc-n">${S.people.length}</b><span class="hc-s">persone</span></div>
-      </div></div>
-    </section>
-    <div class="kpis">${kpi('Persone', S.people.length, 'con accesso')}${kpi('Quiz attivi', live, `${S.quizzes.length} in totale`, null, 'acc')}
-      ${kpi('Consegne', doneAll.length, doneAll.length ? `media ${avgAll}%` : 'nessuna ancora', doneAll.length ? avgAll : null, avgAll >= 80 ? 'ok' : avgAll >= 60 ? 'warn' : doneAll.length ? 'bad' : '')}${kpi('Risposte survey', S.responses.length, `${svLive} ${svLive === 1 ? 'survey attiva' : 'survey attive'}`, null, 'acc')}</div>
-    <div class="ov-grid">
-      <div class="card stack"><h3>Come funziona</h3><ol class="flow">${steps.map((x, i) => `<li class="${x.ok ? 'is-ok' : ''}"><button data-act="${x.act}" data-v="${x.v}"><span class="flow-n">${x.ok ? ICON.check : i + 1}</span><span><b>${x.t}</b><span class="small muted">${x.d}</span></span>${ICON.arrow}</button></li>`).join('')}</ol></div>
-      <div class="card feed"><div class="row"><h3>Attività recenti</h3>${acts.length ? '<span class="live-dot" aria-hidden="true"></span>' : ''}<span class="spacer"></span><button class="btn sm ghost" data-act="reload">Aggiorna</button></div>
-        ${acts.length ? `<ul>${acts.map(a => `<li>${avatar(a.who, a.email)}<span class="feed-t"><b>${esc(a.who || a.email)}</b> ${a.what}<span class="small muted"> · ${timeAgo(a.t)}</span></span><span class="chip ${a.tone}">${esc(a.tag)}</span></li>`).join('')}</ul>`
-          : '<p class="muted small" style="margin-top:10px">Qui compariranno consegne e risposte appena arrivano.</p>'}</div>
-    </div>${purgeCard()}</div>`;
-  return h;
-}
-/* pulizia degli invii (consegne quiz e risposte survey); quiz, survey e accessi non si toccano */
-function purgeCount(t) {
-  if (t === 'all') return S.attempts.length + S.responses.length;
-  if (t.startsWith('q:')) return S.attempts.filter(a => a.quizId === t.slice(2)).length;
-  if (t.startsWith('s:')) return S.responses.filter(r => r.surveyId === t.slice(2)).length;
-  return 0;
-}
-function purgeCard() {
-  const t = S.purgeT || 'all', n = purgeCount(t), all = purgeCount('all');
-  const opts = [`<option value="all" ${t === 'all' ? 'selected' : ''}>Tutti gli invii (${all})</option>`,
-    ...S.quizzes.map(q => `<option value="q:${q.id}" ${t === 'q:' + q.id ? 'selected' : ''}>Quiz · ${esc(q.title)} (${purgeCount('q:' + q.id)})</option>`),
-    ...S.surveys.map(x => `<option value="s:${x.def.id}" ${t === 's:' + x.def.id ? 'selected' : ''}>Survey · ${esc(x.def.title)} (${purgeCount('s:' + x.def.id)})</option>`)].join('');
-  return `<div class="card stack purge" id="purge"><div class="row"><span class="purge-ic">${ICON.trash}</span><div style="flex:1;min-width:0"><h3>Pulizia invii</h3>
-    <p class="small muted">Elimina consegne dei quiz e risposte alle survey, per esempio quelle di prova. <b>Quiz, survey e accessi restano come sono</b>; chi aveva già inviato potrà farlo di nuovo.</p></div></div>
-    <div class="purge-row"><select id="purge-t" data-f="purge" aria-label="Cosa eliminare">${opts}</select>
-    ${S.purgeAsk ? `<div class="purge-ask"><span class="small"><b>Eliminare ${n} ${n === 1 ? 'invio' : 'invii'}?</b> Non si torna indietro.</span><button class="btn sm danger solid" data-act="purgeok" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Elimino…' : 'Elimina'}</button><button class="btn sm" data-act="purgeno">Annulla</button></div>`
-      : `<button class="btn danger" data-act="purgeask" ${n ? '' : 'disabled'}>${ic('trash')}Elimina ${n} ${n === 1 ? 'invio' : 'invii'}</button>`}</div></div>`;
-}
-async function doPurge() {
-  const t = S.purgeT || 'all';
-  const body = t === 'all' ? { quizzes: 'all', surveys: 'all' } : t.startsWith('q:') ? { quizzes: t.slice(2) } : { surveys: t.slice(2) };
-  S.saving = true; render();
-  try { const r = await api('admin/purge', { method: 'POST', body }); toast(`${r.deleted} ${r.deleted === 1 ? 'invio eliminato' : 'invii eliminati'}`); S.purgeAsk = false; S.purgeT = 'all'; S.openDetail = null; S.svOpen = null; await loadAll(); }
-  catch (e) { if (e.message !== '401') toast(e.message); }
-  S.saving = false; render();
 }
 function adminHome() {
   const rows = attemptRows();
-  const live = S.quizzes.filter(q => q.active).length;
-  let h = `<div class="stack">${pageHead('Quiz', 'I tuoi quiz', `${live} ${live === 1 ? 'attivo' : 'attivi'} su ${S.quizzes.length}. Solo i quiz attivi sono visibili al team.`,
-    `<button class="btn primary" data-act="new">${ic('plus')}Nuovo quiz</button>`)}`;
+  let h = `<div class="stack"><div class="row"><div><h2>I tuoi quiz</h2><p class="muted small">Solo i quiz <b>attivi</b> sono visibili ai dipendenti.</p></div><span class="spacer"></span>
+    <button class="btn primary" data-act="new">+ Nuovo quiz</button></div>`;
   if (!S.quizzes.length) return h + `<div class="empty"><h3>Nessun quiz ancora</h3><p>Crea il primo quiz: scrivi le domande o incollale in blocco, imposta durata e soglia di superamento, poi attivalo.</p><p style="margin-top:14px"><button class="btn primary" data-act="new">Crea il primo quiz</button></p></div></div>`;
-  h += '<div class="qgrid">';
+  h += '<div class="qlist">';
   for (const q of S.quizzes) {
     const done = rows.filter(r => r.a.quizId === q.id && r.done).length;
-    const ask = S.askDel === q.id, pct = S.people.length ? Math.min(100, Math.round(done / S.people.length * 100)) : 0;
-    h += `<article class="qcard2${q.active ? ' is-live' : ''}">
-      <div class="qc-top"><button class="switch" role="switch" aria-checked="${!!q.active}" data-act="toggle" data-id="${q.id}" title="${q.active ? 'Attivo: visibile al team. Clicca per disattivare' : 'Bozza: clicca per attivare'}"><i></i></button>
-        <span class="small ${q.active ? 'live-t' : 'muted'}">${q.active ? 'Attivo' : 'Bozza'}</span><span class="spacer"></span>
-        <button class="icon-btn" data-act="preview" data-id="${q.id}" title="Anteprima">${ICON.eye}</button>
-        <button class="icon-btn danger" data-act="delask" data-id="${q.id}" title="Elimina">${ICON.trash}</button></div>
-      <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small qc-desc">${esc(q.desc)}</p>` : ''}
-      <div class="meta">${ic('list')}<span>${q.questions.length} domande</span>${ic('clock')}<span>${q.duration} min</span>${ic('check')}<span>soglia ${q.passPct}%</span></div>
-      <div class="progress-mini"><span class="pm-bar"><i style="width:${pct}%"></i></span><span class="small muted"><b>${done}</b>${S.people.length ? `/${S.people.length}` : ''} consegnati</span></div>
-      ${ask ? `<div class="qc-ask"><span class="small">Eliminare il quiz? Non si torna indietro.</span><button class="btn sm danger solid" data-act="delok" data-id="${q.id}">Elimina</button><button class="btn sm" data-act="delno">Annulla</button></div>`
-        : `<div class="qc-foot"><button class="btn" data-act="edit" data-id="${q.id}">Modifica</button><button class="btn" data-act="seeres" data-id="${q.id}">${ic('chart')}Risultati</button></div>`}
-    </article>`;
+    const ask = S.askDel === q.id;
+    h += `<div class="card qitem"><div class="stack" style="gap:8px;min-width:0">
+      <div class="row"><h3>${esc(q.title)}</h3>${q.active ? '<span class="chip ok">Attivo</span>' : '<span class="chip">Bozza</span>'}</div>
+      ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
+      <div class="meta"><span>${q.questions.length} domande</span><span>${q.duration} min</span><span>Soglia ${q.passPct}%</span><span>${done} consegnati</span></div></div>
+      <div class="actions">${ask ? `<span class="small muted">Eliminare il quiz?</span><button class="btn sm danger solid" data-act="delok" data-id="${q.id}">Elimina</button><button class="btn sm" data-act="delno">Annulla</button>` :
+      `<button class="btn sm" data-act="toggle" data-id="${q.id}">${q.active ? 'Disattiva' : 'Attiva'}</button>
+       <button class="btn sm" data-act="edit" data-id="${q.id}">Modifica</button>
+       <button class="btn sm" data-act="preview" data-id="${q.id}">Anteprima</button>
+       <button class="btn sm" data-act="seeres" data-id="${q.id}">Risultati</button>
+       <button class="btn sm ghost danger" data-act="delask" data-id="${q.id}">Elimina</button>`}</div></div>`;
   }
-  return h + `</div></div>`;
+  return h + `</div><p class="small muted">Per far svolgere un quiz: attivalo, autorizza le email nella scheda <b>Accessi</b> e manda a ogni lavoratore il link del sito con la sua email e il suo codice.</p></div>`;
 }
 const blankQ = () => ({ text: '', options: ['', '', '', ''], correct: null });
 function editView() {
   const d = S.draft;
   let h = `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="cancel">← Torna ai quiz</button></div>
-  ${pageHead('Quiz', d.id ? 'Modifica quiz' : 'Nuovo quiz', '')}
+  <h2>${d.id ? 'Modifica quiz' : 'Nuovo quiz'}</h2>
   ${d.id && S.attempts.some(a => a.quizId === d.id) ? '<div class="note">Questo quiz è già stato svolto: se cambi domande o risposte corrette, i punteggi già salvati non vengono ricalcolati.</div>' : ''}
   <div class="card stack">
     <label class="f">Titolo<input type="text" id="f-title" data-f="title" value="${esc(d.title)}" placeholder="Es. Procedure di accoglienza clienti"></label>
-    <label class="f">Istruzioni per i lavoratori <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
-    <div class="grid2">
+    <label class="f">Istruzioni per i dipendenti <span class="hint">facoltativo</span><textarea id="f-desc" data-f="desc" rows="2" placeholder="Es. Rispondi da solo, senza consultare materiali.">${esc(d.desc)}</textarea></label>
+    <div class="grid3">
       <label class="f">Durata (minuti)<input type="number" id="f-dur" min="1" max="300" data-f="duration" value="${d.duration}"></label>
       <label class="f">Soglia di superamento (%)<input type="number" id="f-pass" min="0" max="100" data-f="passPct" value="${d.passPct}"></label>
+      <div class="f" style="justify-content:flex-end;gap:8px">
+        <label class="check"><input type="checkbox" id="f-sq" data-f="shuffleQ" ${d.shuffleQ ? 'checked' : ''}>Domande in ordine casuale</label>
+        <label class="check"><input type="checkbox" id="f-so" data-f="shuffleO" ${d.shuffleO ? 'checked' : ''}>Risposte in ordine casuale</label>
+      </div>
     </div>
-    <div class="checks">
-      <label class="check"><input type="checkbox" id="f-sq" data-f="shuffleQ" ${d.shuffleQ ? 'checked' : ''}>Domande in ordine casuale</label>
-      <label class="check"><input type="checkbox" id="f-so" data-f="shuffleO" ${d.shuffleO ? 'checked' : ''}>Risposte in ordine casuale</label>
-      <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai lavoratori)</label>
-    </div>
+    <label class="check"><input type="checkbox" id="f-act" data-f="active" ${d.active ? 'checked' : ''}>Attivo (visibile ai dipendenti)</label>
   </div>
   <div class="card stack"><div class="row"><h3>Domande</h3><span class="chip acc">${d.questions.length}</span><span class="spacer"></span><span class="hint">Seleziona il pallino della risposta corretta</span></div>`;
   d.questions.forEach((q, qi) => {
@@ -379,38 +253,26 @@ function resultsView() {
   if (S.resFilter !== 'all') rows = rows.filter(r => r.a.quizId === S.resFilter);
   const done = rows.filter(r => r.done), passed = done.filter(r => r.pass);
   const avg = done.length ? Math.round(done.reduce((s, r) => s + r.pct, 0) / done.length) : 0;
-  const running = rows.length - done.length, passRate = done.length ? Math.round(passed.length / done.length * 100) : 0;
-  let h = `<div class="stack">${pageHead('Analisi', 'Risultati', 'Punteggi, tempi ed esiti dei quiz consegnati.',
-    `<select id="resf" data-f="resFilter" aria-label="Filtra per quiz" style="width:auto;max-width:100%"><option value="all">Tutti i quiz</option>
+  let h = `<div class="stack"><div class="row"><h2>Risultati</h2><span class="spacer"></span>
+    <button class="btn" data-act="reload">Aggiorna</button>
+    <select id="resf" data-f="resFilter" aria-label="Filtra per quiz" style="width:auto;max-width:100%"><option value="all">Tutti i quiz</option>
     ${S.quizzes.map(q => `<option value="${q.id}" ${S.resFilter === q.id ? 'selected' : ''}>${esc(q.title)}</option>`).join('')}</select>
-    <button class="btn" data-act="reload">Aggiorna</button>${rows.length ? '<button class="btn" data-act="csv">Esporta CSV</button><button class="btn ghost danger" data-act="purgego" title="Elimina le consegne (per esempio quelle di prova)">Pulisci invii</button>' : ''}`)}
-    <div class="kpis">${kpi('Consegnati', done.length, running ? `${running} in corso` : 'nessuno in corso')}
-    ${kpi('Superati', passed.length, 'sul totale consegnati', passRate, 'ok')}
-    ${kpi('Non superati', done.length - passed.length, 'sotto la soglia', done.length ? 100 - passRate : 0, 'bad')}
-    ${kpi('Media', avg + '%', 'risposte corrette', avg, avg >= 80 ? 'ok' : avg >= 60 ? 'warn' : 'bad')}</div>`;
+    ${rows.length ? '<button class="btn" data-act="csv">Esporta CSV</button>' : ''}</div>
+    <div class="stats"><div class="stat"><b>${done.length}</b><span>Consegnati</span></div><div class="stat"><b>${passed.length}</b><span>Superati</span></div>
+    <div class="stat"><b>${done.length - passed.length}</b><span>Non superati</span></div><div class="stat"><b>${avg}%</b><span>Punteggio medio</span></div></div>`;
   if (!rows.length) return h + `<div class="empty"><h3>Nessun risultato ancora</h3><p>Quando un lavoratore consegna un quiz, qui trovi punteggio, tempo impiegato ed esito.</p></div></div>`;
-  if (done.length) {
-    const bands = [['Da 80% in su', done.filter(r => r.pct >= 80).length, 'ok'], ['60 – 79%', done.filter(r => r.pct >= 60 && r.pct < 80).length, 'warn'], ['Sotto 60%', done.filter(r => r.pct < 60).length, 'bad']];
-    h += `<div class="card stack"><div class="row"><h3>Distribuzione dei punteggi</h3><span class="spacer"></span><span class="small muted">${done.length} ${done.length === 1 ? 'consegnato' : 'consegnati'}</span></div>
-      <div class="stackbar">${bands.filter(b => b[1]).map(b => `<i class="${b[2]}" style="flex:${b[1]}" title="${b[0]}: ${b[1]}"></i>`).join('')}</div>
-      <div class="legend">${bands.map(b => `<span><i class="dot ${b[2]}"></i>${b[0]} <b>${b[1]}</b></span>`).join('')}</div></div>`;
-  }
-  const showQ = new Set(rows.map(r => r.a.quizId)).size > 1, cols = showQ ? 6 : 5;
-  h += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Lavoratore</th>${showQ ? '<th>Quiz</th>' : ''}<th>Svolto</th><th>Punteggio</th><th>Esito</th><th></th></tr></thead><tbody>`;
+  h += `<div class="tbl-wrap"><table><thead><tr><th>lavoratore</th><th>Quiz</th><th>Inizio</th><th>Durata</th><th>Punteggio</th><th>Esito</th><th>Uscite</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const k = r.a.key, open = S.openDetail === k;
     const esito = !r.done ? '<span class="chip warn">In corso</span>' : r.pass ? '<span class="chip ok">Superato</span>' : '<span class="chip bad">Non superato</span>';
-    h += `<tr class="${open ? 'is-open' : ''}"><td><div class="who">${avatar(r.name, r.a.email)}<div><b>${esc(r.name)}</b><div class="small muted">${esc(r.a.email)}</div></div></div></td>${showQ ? `<td class="qcell"><span title="${esc(r.quiz ? r.quiz.title : '')}">${esc(r.quiz ? r.quiz.title : 'Quiz eliminato')}</span></td>` : ''}
-      <td class="num"><div>${fmtShort(r.a.startedAt)}</div><div class="small muted">${r.done ? 'durata ' + fmtDur(r.a.finishedAt - r.a.startedAt) : 'in corso'}${r.a.auto ? ' · <span style="color:var(--warn)">tempo scaduto</span>' : ''}</div></td>
-      <td class="num">${r.done ? `<div class="score"><span class="scorebar"><i class="${r.pass ? 'ok' : 'bad'}" style="width:${r.pct}%"></i></span><span>${r.score}/${r.n} · <b>${r.pct}%</b></span></div>` : '—'}</td><td>${esito}${r.a.leaves ? `<div class="small muted" style="margin-top:4px">${r.a.leaves} ${r.a.leaves === 1 ? 'uscita' : 'uscite'} dalla pagina</div>` : ''}</td>
+    h += `<tr><td>${esc(r.name)}<div class="small muted">${esc(r.a.email)}</div></td><td>${esc(r.quiz ? r.quiz.title : 'Quiz eliminato')}</td><td class="num">${fmtD(r.a.startedAt)}</td>
+      <td class="num">${r.done ? fmtDur(r.a.finishedAt - r.a.startedAt) : '—'}${r.a.auto ? ' <span class="chip warn">tempo scaduto</span>' : ''}</td>
+      <td class="num">${r.done ? `${r.score}/${r.n} · ${r.pct}%` : '—'}</td><td>${esito}</td><td class="num">${r.a.leaves || 0}</td>
       <td><div class="row" style="flex-wrap:nowrap">${r.quiz ? `<button class="btn sm" data-act="detail" data-k="${esc(k)}">${open ? 'Chiudi' : 'Dettaglio'}</button>` : ''}
       ${S.askReset === k ? `<button class="btn sm danger solid" data-act="resetok" data-k="${esc(k)}">Conferma</button><button class="btn sm" data-act="resetno">No</button>` :
-      `<button class="btn sm ghost" data-act="resetask" data-k="${esc(k)}" title="Nuovo tentativo: cancella questa consegna e permetti di rifare il quiz">Riapri</button>`}</div></td></tr>`;
+      `<button class="btn sm ghost" data-act="resetask" data-k="${esc(k)}" title="Cancella questo tentativo e permetti di rifarlo">Nuovo tentativo</button>`}</div></td></tr>`;
     if (open && r.quiz) {
-      // domande com'erano quando la persona ha svolto il quiz (copia salvata); per i tentativi vecchi, quelle attuali
-      const QS = r.a.questions && r.a.questions.length ? r.a.questions : r.quiz.questions;
-      const changed = !(r.a.questions && r.a.questions.length) && r.quiz.updatedAt && r.a.startedAt && r.quiz.updatedAt > r.a.startedAt;
-      h += `<tr><td colspan="${cols}" class="detail">${changed ? `<div class="note warn-note"><b>Attenzione:</b> il quiz è stato modificato dopo questa consegna (${fmtD(r.quiz.updatedAt)}). Il punteggio ${r.score}/${r.n} è quello calcolato alla consegna; il dettaglio qui sotto confronta le risposte con le domande <b>attuali</b>, quindi dove una domanda è cambiata può risultare sbagliata anche se non lo era.</div>` : ''}<div class="ans">${QS.map((q, i) => {
+      h += `<tr><td colspan="8" class="detail"><div class="ans">${r.quiz.questions.map((q, i) => {
         const g = (r.a.answers || {})[i]; const ok = g !== undefined && g === q.correct;
         return `<div><span class="k ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'}</span><span><b>${i + 1}. ${esc(q.text)}</b><br>
           <span class="muted">Risposta data:</span> ${g === undefined ? '<i>nessuna</i>' : esc(q.options[g])}
@@ -418,7 +280,7 @@ function resultsView() {
       }).join('')}</div></td></tr>`;
     }
   }
-  return h + `</tbody></table></div><p class="small muted">Le "uscite dalla pagina" contano quante volte il lavoratore ha cambiato scheda o app durante il quiz.</p></div>`;
+  return h + `</tbody></table></div><p class="small muted">"Uscite" conta quante volte il lavoratore ha lasciato la pagina durante il quiz (cambio scheda o app).</p></div>`;
 }
 function exportCsv() {
   let rows = attemptRows(); if (S.resFilter !== 'all') rows = rows.filter(r => r.a.quizId === S.resFilter);
@@ -434,92 +296,63 @@ function exportCsv() {
 /* ----- responsabile: accessi ----- */
 function accessView() {
   const list = S.people.slice().sort((a, b) => a.email.localeCompare(b.email));
-  const live = S.quizzes.filter(q => q.active).length + S.surveys.filter(x => x.active).length;
-  const sendOn = S.sendMail !== false;
-  let h = `<div class="stack">${pageHead('Persone', 'Accessi', 'Solo le persone in questo elenco possono entrare.<br>Ognuna accede con la sua email e il codice personale generato qui.',
-    `<span class="count-pill">${ic('users')}${list.length} ${list.length === 1 ? 'persona' : 'persone'}</span>`)}
-  <div class="card stack add-card"><label class="f">Aggiungi email <span class="hint">anche più di una, separate da virgola o a capo</span>
-    <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it">${esc(S.accIn || '')}</textarea></label>
-    ${S.mailOn ? `<label class="check"><input type="checkbox" id="acc-mail" data-f="sendMail" ${sendOn ? 'checked' : ''}>Invia subito a ognuno l'email con link, email e codice personale</label>` : ''}
-    ${live ? `<p class="note warn-note small"><b>Attenzione:</b> ci sono ${live === 1 ? '1 attività attiva' : live + ' attività attive'} (quiz o survey). Chi riceve l'accesso adesso le vede e può svolgerle subito.</p>` : ''}
+  let h = `<div class="stack"><div><h2>Accessi</h2><p class="muted small">Solo le persone in questo elenco possono entrare. Ognuna accede con la sua email e il codice personale generato qui.</p></div>
+  <div class="card stack"><label class="f">Aggiungi email <span class="hint">anche più di una, separate da virgola o a capo</span>
+    <textarea id="accin" rows="3" placeholder="mario.rossi@gsloft.it, giulia.bianchi@gsloft.it"></textarea></label>
     ${S.accErr ? `<div class="err">${esc(S.accErr)}</div>` : ''}
-    <div class="row"><span class="spacer"></span><button class="btn primary" data-act="accadd" ${S.saving ? 'disabled' : ''}>${S.saving ? 'Attendi…' : S.mailOn && sendOn ? 'Autorizza e invia email' : 'Autorizza e genera codici'}</button></div></div>`;
+    <div class="row"><span class="spacer"></span><button class="btn primary" data-act="accadd" ${S.saving ? 'disabled' : ''}>Autorizza e genera codici</button></div></div>`;
   if (!list.length) return h + `<div class="empty"><h3>Nessuna email autorizzata</h3><p>Finché l'elenco è vuoto nessun lavoratore può entrare.</p></div></div>`;
-  h += `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Email autorizzate · ${list.length}</th><th>Codice</th>${S.mailOn ? '<th>Email di accesso</th>' : ''}<th></th></tr></thead><tbody>`;
+  h += `<div class="tbl-wrap"><table><thead><tr><th>Email autorizzate · ${list.length}</th><th>Codice</th><th></th></tr></thead><tbody>`;
   for (const p of list) {
     const msg = `Link: ${location.origin}\nEmail: ${p.email}\nCodice di accesso: ${p.code}`;
-    const st = p.mailError && !p.mailedAt ? '<span class="chip bad">Non riuscita</span>' : p.mailedAt ? `<span class="chip ok">Inviata</span> <span class="small muted">${timeAgo(p.mailedAt)}</span>` : '<span class="chip">Non inviata</span>';
-    const busy = S.mailing === p.email;
-    h += `<tr><td><div class="who">${avatar('', p.email)}<span>${esc(p.email)}</span></div></td><td class="num"><span class="code">${esc(p.code)}</span> <button class="btn sm ghost" data-act="copy" data-t="${esc(msg)}">Copia</button>
-      <button class="btn sm ghost" data-act="regen" data-e="${esc(p.email)}" title="Genera un nuovo codice: quello vecchio smette di funzionare${S.mailOn ? ". La persona riceve l'email con il nuovo codice" : ''}">Nuovo codice</button></td>
-      ${S.mailOn ? `<td>${st} <button class="btn sm ghost" data-act="accmail" data-e="${esc(p.email)}" ${busy ? 'disabled' : ''}>${busy ? 'Invio…' : p.mailedAt ? 'Reinvia' : 'Invia'}</button></td>` : ''}
+    h += `<tr><td>${esc(p.email)}</td><td class="num"><b>${esc(p.code)}</b> <button class="btn sm ghost" data-act="copy" data-t="${esc(msg)}">Copia</button>
+      <button class="btn sm ghost" data-act="regen" data-e="${esc(p.email)}" title="Genera un nuovo codice: quello vecchio smette di funzionare">Nuovo codice</button></td>
       <td style="text-align:right">${S.askRm === p.email ? `<span class="small muted">Togliere l'accesso?</span> <button class="btn sm danger solid" data-act="accrmok" data-e="${esc(p.email)}">Rimuovi</button> <button class="btn sm" data-act="accrmno">Annulla</button>`
       : `<button class="btn sm ghost danger" data-act="accrm" data-e="${esc(p.email)}">Rimuovi</button>`}</td></tr>`;
   }
-  return h + `</tbody></table></div><p class="small muted">${S.mailOn ? 'L\'email contiene link al portale, email e codice personale. ' : ''}"Copia" prepara lo stesso messaggio da mandare a mano.</p></div>`;
+  return h + `</tbody></table></div><p class="small muted">"Copia" prepara il messaggio con link, email e codice da mandare al lavoratore.</p></div>`;
 }
-const mailMsg = (m, okOne, okMany) => !m || !m.configured ? '' : m.failed && m.failed.length ? ` · email non inviata a ${m.failed.length}` : m.sent ? ` · ${m.sent === 1 ? okOne : m.sent + ' ' + okMany}` : '';
 async function addAccess() {
-  S.accIn = document.getElementById('accin').value;
-  const emails = S.accIn.split(/[\s,;]+/).filter(Boolean);
+  const emails = document.getElementById('accin').value.split(/[\s,;]+/).filter(Boolean);
   S.saving = true; S.accErr = null; render();
-  try {
-    const r = await api('admin/people', { method: 'POST', body: { emails, sendMail: S.sendMail !== false } }); S.people = r.people; S.accIn = '';
-    toast((r.added ? (r.added === 1 ? 'Email autorizzata' : r.added + ' email autorizzate') : 'Email già autorizzate') + mailMsg(r.mail, 'email inviata', 'email inviate'));
-  } catch (e) { if (e.message !== '401') S.accErr = e.message; }
+  try { const r = await api('admin/people', { method: 'POST', body: { emails } }); S.people = r.people; toast(r.added ? (r.added === 1 ? 'Email autorizzata' : r.added + ' email autorizzate') : 'Email già autorizzate'); }
+  catch (e) { if (e.message !== '401') S.accErr = e.message; }
   S.saving = false; render();
-}
-async function mailAccess(email) {
-  S.mailing = email; render();
-  try { const r = await api('admin/people/mail', { method: 'POST', body: { email } }); S.people = r.people; toast('Email inviata a ' + email); }
-  catch (e) { if (e.message !== '401') toast(e.message); }
-  S.mailing = null; render();
 }
 
 /* ----- lavoratore ----- */
-function quizTile(q) {
-  const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia ${ic('arrow')}</button>` : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi ${ic('arrow')}</button>`;
-  return `<article class="tile tilt kind-quiz"><div class="tile-in">
-    <div class="tile-top"><span class="kind">${ic('list')}Quiz</span>${q.status === 'da_fare' ? '' : '<span class="chip warn">In corso</span>'}</div>
-    <h3>${esc(q.title)}</h3>${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
-    <div class="meta">${ic('list')}<span>${q.count} domande</span>${ic('clock')}<span>${q.duration} minuti</span></div>
-    <div class="tile-foot">${act}</div></div></article>`;
-}
-function surveyTile(s) {
-  return `<article class="tile tilt kind-survey"><div class="tile-in">
-    <div class="tile-top"><span class="kind">${ic('doc')}Survey</span></div>
-    <h3>${esc(s.title)}</h3><p class="muted small">${esc(s.subtitle)}</p>
-    <div class="meta">${ic('clock')}<span>${esc(s.estimate.replace('Tempo di compilazione: circa', 'Circa').replace(/\.$/, ''))}</span></div>
-    <div class="tile-foot"><button class="btn primary" data-act="svopen" data-id="${s.id}">Compila ${ic('arrow')}</button></div></div></article>`;
-}
 function employeeHome() {
-  const todoQ = S.quizzes.filter(q => q.status !== 'consegnato'), todoS = S.surveys.filter(s => !s.submittedAt);
-  const doneQ = S.quizzes.filter(q => q.status === 'consegnato'), doneS = S.surveys.filter(s => s.submittedAt);
-  const todo = todoQ.length + todoS.length, total = S.quizzes.length + S.surveys.length, doneN = total - todo;
-  const pctDone = total ? Math.round(doneN / total * 100) : 100, nm = firstName(S.email);
-  let h = `<div class="stack"><section class="hero-band">
-    <div class="hero-txt"><p class="eyebrow">${esc(today())}</p><h2>Ciao${nm ? ' ' + esc(nm) : ''}<span class="wave" aria-hidden="true">.</span></h2>
-      <p class="muted">${todo ? `Hai <b>${todo} ${todo === 1 ? 'attività' : 'attività'}</b> da completare.` : total ? 'Sei in pari: hai completato tutto. Grazie!' : 'Per ora non ci sono attività. Quando ne viene attivata una, la trovi qui.'}</p></div>
-    ${total ? `<div class="hero-ring" style="--p:${pctDone}" aria-label="Completamento ${pctDone}%"><div><b>${pctDone}%</b><span>fatto</span></div></div>` : ''}
-  </section>`;
-  if (todo) {
-    h += `<div class="sec-h"><h3>Da completare</h3><span class="count">${todo}</span><span class="spacer"></span><button class="btn sm ghost" data-act="reload">Aggiorna</button></div><div class="tiles">${todoS.map(surveyTile).join('')}${todoQ.map(quizTile).join('')}</div>`;
-    if (todoQ.length) h += '<p class="small muted">I quiz sono a tempo e si possono svolgere una sola volta: inizia quando hai il tempo indicato a disposizione.</p>';
+  let h = `<div class="stack"><div class="row"><div><h2>Da completare</h2><p class="muted small">Qui trovi le survey e i quiz attivati dal responsabile.</p></div><span class="spacer"></span><button class="btn" data-act="reload">Aggiorna</button></div>`;
+  if (!S.quizzes.length && !S.surveys.length) return h + `<div class="empty"><h3>Niente da completare</h3><p>Quando il responsabile attiva una survey o un quiz, lo trovi qui.</p></div></div>`;
+  if (S.surveys.length) {
+    h += '<h3 class="sec-t">Survey</h3><div class="qlist">';
+    for (const s of S.surveys) {
+      h += `<div class="card qitem"><div class="stack" style="gap:6px;min-width:0"><h3>${esc(s.title)}</h3><p class="muted small">${esc(s.subtitle)}</p>
+        <div class="meta"><span>${esc(s.estimate.replace('Tempo di compilazione: circa', 'Circa').replace(/\.$/, ''))}</span>${s.submittedAt ? `<span>Inviata il ${fmtD(s.submittedAt)}</span>` : ''}</div></div>
+        <div class="actions">${s.submittedAt ? `<span class="chip ok">Inviata</span><button class="btn" data-act="svopen" data-id="${s.id}">Modifica risposte</button>`
+          : `<button class="btn primary" data-act="svopen" data-id="${s.id}">Compila</button>`}</div></div>`;
+    }
+    h += '</div>';
   }
-  if (doneQ.length || doneS.length) {
-    h += `<div class="sec-h"><h3>Completati</h3><span class="count ok">${doneQ.length + doneS.length}</span></div><div class="done-list">
-      ${doneS.map(s => `<div class="done-row"><span class="dr-ic ok">${ICON.check}</span><div class="dr-t"><b>${esc(s.title)}</b><span class="small muted">Survey · inviata il ${fmtD(s.submittedAt)}</span></div><button class="btn sm" data-act="svopen" data-id="${s.id}">Modifica risposte</button></div>`).join('')}
-      ${doneQ.map(q => `<div class="done-row"><span class="dr-ic ok">${ICON.check}</span><div class="dr-t"><b>${esc(q.title)}</b><span class="small muted">Quiz · consegnato il ${fmtD(q.finishedAt)}</span></div></div>`).join('')}</div>`;
+  if (!S.quizzes.length) return h + '</div>';
+  h += `<h3 class="sec-t">Quiz</h3><p class="muted small" style="margin-top:-10px">Ogni quiz si può svolgere una sola volta.</p><div class="qlist">`;
+  for (const q of S.quizzes) {
+    const act = q.status === 'da_fare' ? `<button class="btn primary" data-act="intro" data-id="${q.id}">Inizia</button>`
+      : q.status === 'consegnato' ? `<span class="chip ok">Consegnato</span>`
+      : `<button class="btn primary" data-act="resume" data-id="${q.id}">Riprendi</button>`;
+    h += `<div class="card qitem"><div class="stack" style="gap:6px;min-width:0"><h3>${esc(q.title)}</h3>
+      ${q.desc ? `<p class="muted small">${esc(q.desc)}</p>` : ''}
+      <div class="meta"><span>${q.count} domande</span><span>${q.duration} minuti</span>${q.finishedAt ? `<span>Consegnato il ${fmtD(q.finishedAt)}</span>` : ''}</div></div>
+      <div class="actions">${act}</div></div>`;
   }
-  return h + '</div>';
+  return h + '</div></div>';
 }
 function introView() {
   const q = S.quizzes.find(x => x.id === S.sel); if (!q) return '';
   const n = q.count ?? q.questions.length;
   return `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="home">← Indietro</button>${S.preview ? '<span class="chip acc">Anteprima: nessun dato salvato</span>' : ''}</div>
-  <div class="card stack intro-card"><p class="eyebrow">Prima di iniziare</p><h2>${esc(q.title)}</h2>${q.desc ? `<p>${esc(q.desc)}</p>` : ''}
-    <div class="tile-nums"><div><b>${n}</b><span>domande</span></div><div><b>${q.duration}</b><span>minuti</span></div></div>
-    <ol class="rules steps">
+  <div class="card stack"><h2>${esc(q.title)}</h2>${q.desc ? `<p>${esc(q.desc)}</p>` : ''}
+    <ol class="rules">
       <li>Hai <b>${q.duration} minuti</b> per rispondere a <b>${n} domande</b>.</li>
       <li>Le domande compaiono una alla volta.</li>
       <li>Quando confermi una risposta <b>non puoi più cambiarla</b> né tornare alle domande precedenti.</li>
@@ -532,19 +365,17 @@ function introView() {
 }
 function runView() {
   const r = S.run, q = r.question, last = r.pos === r.total - 1;
-  const qz = S.quizzes.find(x => x.id === r.quizId); r.totalMs = r.totalMs || (qz ? qz.duration * 60000 : Math.max(r.remainingMs, 1));
-  const left = r.deadlineLocal - Date.now(), frac = Math.max(0, Math.min(1, left / r.totalMs));
-  return `<div class="runbar"><div class="run-n"><span class="mono">${pad2(r.pos + 1)}</span><span class="muted">/ ${pad2(r.total)}</span></div><div style="min-width:0"><b>${esc(r.title)}</b><div class="small muted">${S.preview ? 'Anteprima · ' : ''}Domanda ${r.pos + 1} di ${r.total}</div></div>
-    <span class="spacer"></span><div class="tring${left <= 60000 ? ' bad' : left <= 180000 ? ' warn' : ''}" id="tring" style="--f:${frac}"><div class="timer" id="timer" role="timer" aria-label="Tempo rimanente">${fmtT(left)}</div></div>
+  return `<div class="runbar"><div style="min-width:0"><b>${esc(r.title)}</b><div class="small muted mono">( ${pad2(r.pos + 1)} / ${pad2(r.total)} )${S.preview ? ' · anteprima' : ''}</div></div>
+    <span class="spacer"></span><div class="timer" id="timer" role="timer" aria-label="Tempo rimanente">${fmtT(r.deadlineLocal - Date.now())}</div>
     <div class="progress"><i style="width:${r.pos / r.total * 100}%"></i></div></div>
-  <div class="stack qcard" style="margin-top:24px"><p class="question">${esc(q.text)}</p>
+  <div class="stack" style="margin-top:24px"><p class="question">${esc(q.text)}</p>
     <div class="choices" role="radiogroup">${q.options.map((o, k) => `<button class="choice" role="radio" data-act="pick" data-o="${o.i}" aria-checked="${r.pick === o.i}"><span class="l">${L(k)}</span><span>${esc(o.text)}</span></button>`).join('')}</div>
-    <div class="row"><span class="small muted keyhint">Usa i tasti <kbd>A</kbd>–<kbd>${L(q.options.length - 1)}</kbd> per scegliere e <kbd>Invio</kbd> per confermare. La risposta confermata non si può modificare.</span><span class="spacer"></span>
+    <div class="row"><span class="small muted">La risposta confermata non si può modificare.</span><span class="spacer"></span>
     <button class="btn primary" data-act="confirm" ${r.pick == null || S.saving ? 'disabled' : ''}>${S.saving ? 'Invio…' : last ? 'Conferma e consegna' : 'Conferma e vai avanti →'}</button></div></div>`;
 }
 function doneView() {
   const r = S.lastResult || {};
-  let h = `<div class="card stack done-card" style="text-align:center;align-items:center;padding:40px 20px;margin-top:8px">${confetti()}<div class="badge3d">${ICON.check}</div><span class="chip ok">Quiz consegnato</span>
+  let h = `<div class="card stack" style="text-align:center;align-items:center;padding:36px 20px;margin-top:8px"><span class="chip ok">Quiz consegnato</span>
     <h2>${esc(r.title || '')}</h2>${r.auto ? '<p class="muted">Il tempo è scaduto: il quiz è stato consegnato con le risposte date fino a quel momento.</p>' : ''}`;
   if (S.preview && r.n) h += `<div class="big">${r.score}/${r.n}</div><p class="muted">Anteprima: ${r.pct}% · ${r.pass ? 'superato' : 'non superato'} (soglia ${r.passPct}%). Nessun dato è stato salvato.</p>`;
   else h += `<p class="muted">Grazie. Il responsabile vedrà il risultato.</p>`;
@@ -703,7 +534,7 @@ async function submitSurvey() {
 }
 function surveyDoneView() {
   const r = S.lastResult || {};
-  return `<div class="card stack done-card" style="text-align:center;align-items:center;padding:40px 20px;margin-top:8px">${confetti()}<div class="badge3d">${ICON.check}</div><span class="chip ok">${r.again ? 'Risposte aggiornate' : 'Risposte inviate'}</span>
+  return `<div class="card stack" style="text-align:center;align-items:center;padding:36px 20px;margin-top:8px"><span class="chip ok">${r.again ? 'Risposte aggiornate' : 'Risposte inviate'}</span>
     <h2>Grazie!</h2><p class="muted">Abbiamo ricevuto le tue risposte a “${esc(r.title || '')}”.<br>Se ti accorgi di aver dimenticato qualcosa, puoi modificarle dalla pagina iniziale finché la survey resta aperta.</p>
     <button class="btn" data-act="home">Torna alla pagina iniziale</button></div>`;
 }
@@ -739,13 +570,13 @@ const svName = r => r.name || 'Senza nome';
 const svQ = (def, id) => def.sections.flatMap(s => s.questions).find(q => q.id === id) || {};
 function svToolName(def, it) { const q = svQ(def, 'q4'); return it.q4 === q.other ? (it.q4__altro || 'Altro') : (it.q4 || '—'); }
 function adminSurveys() {
-  let h = `<div class="stack">${pageHead('Area responsabile', 'Survey', 'Le survey <b>attive</b> compaiono a tutte le persone autorizzate nella scheda Accessi, insieme ai quiz.<br>Ognuno può aggiornare le proprie risposte finché la survey resta attiva.')}<div class="qlist">`;
+  let h = `<div class="stack"><div><h2>Survey</h2><p class="muted small">Le survey <b>attive</b> compaiono a tutte le persone autorizzate nella scheda Accessi, insieme ai quiz. Ognuno può aggiornare le proprie risposte finché la survey resta attiva.</p></div><div class="qlist">`;
   for (const s of S.surveys) {
     const d = s.def;
-    h += `<div class="card stack lift${s.active ? ' is-live' : ''}"><div class="qitem" style="padding:0;border:0"><div class="stack" style="gap:8px;min-width:0">
+    h += `<div class="card stack"><div class="qitem" style="padding:0;border:0"><div class="stack" style="gap:8px;min-width:0">
       <div class="row"><h3>${esc(d.title)}</h3>${s.active ? '<span class="chip ok">Attiva</span>' : '<span class="chip">Bozza</span>'}${s.edited ? '<span class="chip acc">Domande modificate</span>' : ''}</div>
       <p class="muted small">${esc(d.subtitle)}</p>
-      <div class="progress-mini"><span class="pm-bar"><i style="width:${S.people.length ? Math.min(100, Math.round(s.count / S.people.length * 100)) : 0}%"></i></span><span class="small muted"><b>${s.count}</b> / ${S.people.length} ${S.people.length === 1 ? 'persona ha' : 'persone hanno'} risposto</span></div></div>
+      <div class="meta"><span>${s.count} ${s.count === 1 ? 'risposta' : 'risposte'}</span><span>${S.people.length} ${S.people.length === 1 ? 'persona autorizzata' : 'persone autorizzate'}</span></div></div>
       <div class="actions"><button class="btn sm" data-act="svtoggle" data-id="${d.id}">${s.active ? 'Disattiva' : 'Attiva'}</button>
       <button class="btn sm" data-act="svprev" data-id="${d.id}">Anteprima</button>
       <button class="btn sm" data-act="svedit" data-id="${d.id}">Modifica domande</button>
@@ -795,7 +626,7 @@ function seQuestion(q, si, qi, sec, nums) {
 function svEditView() {
   const d = S.svEdit, s = S.surveys.find(x => x.def.id === S.svSel), nums = seNumbers(d);
   let h = `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="secancel">← Torna alle survey</button></div>
-  ${pageHead('Survey', 'Modifica domande', '')}
+  <h2>Modifica domande</h2>
   ${s && s.count ? `<div class="note">Questa survey ha già ${s.count} ${s.count === 1 ? 'risposta' : 'risposte'}: le risposte già inviate restano come sono. Se cambi il testo di una scelta, nelle vecchie risposte resta il testo precedente.</div>` : ''}
   <div class="card stack"><h3>Introduzione</h3>
     <label class="f">Titolo<input type="text" id="se-title" data-se="title" value="${esc(d.title)}" maxlength="120"></label>
@@ -874,20 +705,18 @@ function responsesView() {
     if (asList(t.it.q10).includes('Informazioni sulla salute, esami o percorsi dei clienti')) b.health++; }
   const toolRows = Object.values(byTool).sort((a, b) => b.people.size - a.people.size);
   const missing = S.people.filter(p => !rows.some(r => r.email === p.email));
-  const pRate = S.people.length ? Math.round(rows.length / S.people.length * 100) : 0, uRate = rows.length ? Math.round(usa / rows.length * 100) : 0;
   let h = `<div class="stack"><div class="row"><button class="btn ghost sm" data-act="svlist">← Tutte le survey</button></div>
-    ${pageHead('Survey · risposte', esc(def.title), esc(def.subtitle), `<button class="btn" data-act="reload">Aggiorna</button>${rows.length ? '<button class="btn" data-act="svcsv">Esporta CSV</button>' : ''}`)}
-    <div class="kpis">${kpi('Risposte ricevute', `${rows.length}<small>/${S.people.length}</small>`, 'persone autorizzate', pRate, 'acc')}
-    ${kpi("Usano l'IA", usa, 'spesso o ogni tanto', uRate, 'acc')}
-    ${kpi('Strumenti diversi', toolRows.length, 'indicati nelle risposte')}
-    ${kpi('Dati sanitari', health.length, 'schede con dati dei clienti', null, health.length ? 'bad' : '')}</div>`;
+    <div class="row"><div><h2>${esc(def.title)} · risposte</h2><p class="muted small">${esc(def.subtitle)}</p></div><span class="spacer"></span>
+    <button class="btn" data-act="reload">Aggiorna</button>${rows.length ? '<button class="btn" data-act="svcsv">Esporta CSV</button><button class="btn primary" data-act="report">Prepara resoconto</button>' : ''}</div>
+    <div class="stats"><div class="stat"><b>${rows.length}<small>/${S.people.length}</small></b><span>Risposte ricevute</span></div><div class="stat"><b>${usa}</b><span>Usano l'IA (spesso o ogni tanto)</span></div>
+    <div class="stat"><b>${toolRows.length}</b><span>Strumenti diversi indicati</span></div><div class="stat"><b>${health.length}</b><span>Schede con dati sanitari dei clienti</span></div></div>`;
   if (!rows.length) return h + `<div class="empty"><h3>Nessuna risposta ancora</h3><p>${s.active ? 'Quando qualcuno invia la survey, qui trovi le risposte e il riepilogo degli strumenti.' : 'La survey è in bozza: attivala dalla pagina Survey per renderla visibile.'}</p></div></div>`;
-  h += `<h3 class="sec-t">Strumenti indicati</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Strumento</th><th>Persone</th><th>Con account personale</th><th>Con dati di clienti</th><th>Con dati sanitari</th></tr></thead><tbody>
-    ${toolRows.map(b => `<tr><td><b>${esc(b.n)}</b></td><td class="num"><div class="score"><span class="scorebar"><i class="acc" style="width:${rows.length ? Math.round(b.people.size / rows.length * 100) : 0}%"></i></span><span>${b.people.size}</span></div></td><td class="num">${b.personal}</td><td class="num">${b.clients}</td><td class="num">${b.health ? `<span class="chip bad">${b.health}</span>` : '0'}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nessuno strumento indicato.</td></tr>'}</tbody></table></div>
-    <h3 class="sec-t">Risposte</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Persona</th><th>Area</th><th>Uso dell'IA</th><th>Strumenti</th><th>Inviata</th><th></th></tr></thead><tbody>`;
+  h += `<h3 class="sec-t">Strumenti indicati</h3><div class="tbl-wrap"><table><thead><tr><th>Strumento</th><th>Persone</th><th>Con account personale</th><th>Con dati di clienti</th><th>Con dati sanitari</th></tr></thead><tbody>
+    ${toolRows.map(b => `<tr><td>${esc(b.n)}</td><td class="num">${b.people.size}</td><td class="num">${b.personal}</td><td class="num">${b.clients}</td><td class="num">${b.health ? `<span class="chip bad">${b.health}</span>` : '0'}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Nessuno strumento indicato.</td></tr>'}</tbody></table></div>
+    <h3 class="sec-t">Risposte</h3><div class="tbl-wrap"><table><thead><tr><th>Persona</th><th>Area</th><th>Uso dell'IA</th><th>Strumenti</th><th>Inviata</th><th></th></tr></thead><tbody>`;
   for (const r of rows) {
     const k = r.key, open = S.svOpen === k, m = r.answers.main, its = r.answers.groups.tools || [];
-    h += `<tr class="${open ? 'is-open' : ''}"><td><div class="who">${avatar(svName(r), r.email)}<div><b>${esc(svName(r))}</b><div class="small muted">${esc(r.email)}</div></div></div></td><td>${esc(m.q2 || '—')}${m.q2r ? `<div class="small muted">${esc(m.q2r)}</div>` : ''}</td><td>${esc(m.q3 || '—')}</td>
+    h += `<tr><td>${esc(svName(r))}<div class="small muted">${esc(r.email)}</div></td><td>${esc(m.q2 || '—')}${m.q2r ? `<div class="small muted">${esc(m.q2r)}</div>` : ''}</td><td>${esc(m.q3 || '—')}</td>
       <td class="wrapcell">${its.length ? its.map(it => esc(svToolName(def, it))).join(', ') : '—'}</td><td class="num">${fmtD(r.updatedAt)}${r.edits ? `<div class="small muted">modificata ${r.edits}×</div>` : ''}</td>
       <td><button class="btn sm" data-act="svdetail" data-k="${esc(k)}">${open ? 'Chiudi' : 'Dettaglio'}</button></td></tr>`;
     if (open) h += `<tr><td colspan="6" class="detail svdetail">${svDetail(def, r)}<div class="row svdel">
@@ -895,7 +724,7 @@ function responsesView() {
         : `<button class="btn sm ghost danger" data-act="svdelask" data-k="${esc(k)}">Elimina questa risposta</button>`}</div></td></tr>`;
   }
   h += '</tbody></table></div>';
-  if (missing.length) h += `<div class="card stack"><div class="row"><h3>Non hanno ancora risposto</h3><span class="chip warn">${missing.length}</span></div><div class="pills">${missing.map(p => `<span class="pill">${avatar('', p.email)}${esc(p.email)}</span>`).join('')}</div></div>`;
+  if (missing.length) h += `<p class="small muted"><b>Non hanno ancora risposto (${missing.length}):</b> ${missing.map(p => esc(p.email)).join(', ')}</p>`;
   return h + `<p class="small muted">Il CSV ha una riga per ogni strumento indicato (chi non usa l'IA ha una sola riga), così si può filtrare e costruire la mappatura in Excel.</p></div>`;
 }
 function exportSurveyCsv() {
@@ -915,6 +744,153 @@ function exportSurveyCsv() {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+/* ---------- resoconto delle risposte (solo lettura: non modifica né elimina nulla) ---------- */
+// Palette categoriale validata (ordine fisso, mai ciclata): verde acqua GS LOFT come primo colore.
+const RCOL = ['#1baf7a', '#2a78d6', '#eb6834', '#6250d6', '#eda100', '#e87ba4', '#008300', '#e34948'];
+const pct = (n, d) => d ? Math.round((n / d) * 100) : 0;
+const rArc = (cx, cy, r, a0, a1) => { const p = a => [cx + r * Math.sin(a), cy - r * Math.cos(a)]; const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`; };
+// Ciambella: gli spicchi sono archi spessi, con 2px di stacco; al centro il totale.
+function repDonut(voci, tot, centro, sotto) {
+  const somma = voci.reduce((s, v) => s + v.n, 0) || 1; let a = 0; const gap = voci.length > 1 ? 0.035 : 0;
+  const archi = voci.map((v, i) => { const da = (v.n / somma) * Math.PI * 2; const s = `<path d="${rArc(60, 60, 46, a + gap / 2, a + Math.max(da - gap / 2, gap / 2 + 0.001))}" stroke="${v.col || RCOL[i % RCOL.length]}" stroke-width="16" fill="none"><title>${esc(v.label)}: ${v.n} (${pct(v.n, tot)}%)</title></path>`; a += da; return s; });
+  return `<div class="rdonut"><svg viewBox="0 0 120 120" role="img" aria-label="${esc(sotto || '')}"><circle cx="60" cy="60" r="46" stroke="var(--line)" stroke-width="16" fill="none"/>${voci.length === 1 && voci[0].n === somma ? `<circle cx="60" cy="60" r="46" stroke="${voci[0].col || RCOL[0]}" stroke-width="16" fill="none"/>` : archi.join('')}
+    <text x="60" y="60" text-anchor="middle" class="rd-n">${esc(centro)}</text><text x="60" y="76" text-anchor="middle" class="rd-s">${esc(sotto || '')}</text></svg>
+    <ul class="rlegenda">${voci.map((v, i) => `<li><i style="background:${v.col || RCOL[i % RCOL.length]}"></i><span>${esc(v.label)}</span><b class="mono">${v.n}</b><small class="mono">${pct(v.n, tot)}%</small></li>`).join('')}</ul></div>`;
+}
+function repBars(voci, tot, col) {
+  const max = Math.max(...voci.map(v => v.n), 1);
+  return `<div class="rbars">${voci.map(v => `<div class="rbar" title="${esc(v.label)}: ${v.n} (${pct(v.n, tot)}%)"><span class="rbar-l">${esc(v.label)}</span>
+    <span class="rbar-g"><i style="width:${Math.max((v.n / max) * 100, v.n ? 1.5 : 0)}%;background:${col || 'var(--accent)'}"></i></span><b class="mono">${v.n}<small> · ${pct(v.n, tot)}%</small></b></div>`).join('')}</div>`;
+}
+function repKpi(n, label, sub, tone) { return `<div class="rkpi${tone ? ' ' + tone : ''}"><b>${n}</b><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`; }
+// Tutte le "schede" a cui una domanda si applica: le persone per le sezioni normali, gli strumenti per le sezioni ripetibili.
+function repContainers(def, sec, rows) {
+  const out = [];
+  for (const r of rows) {
+    const main = r.answers.main || {};
+    if (sec.showIf && !svMatch(sec.showIf, main)) continue;
+    if (sec.repeat) for (const it of (r.answers.groups[sec.id] || [])) out.push({ r, ans: it });
+    else out.push({ r, ans: main });
+  }
+  return out;
+}
+function repQuestion(def, sec, q, conts) {
+  const app = conts.filter(c => !q.showIf || svMatch(q.showIf, c.ans));
+  const ans = app.filter(c => asList(c.ans[q.id]).length);
+  const unit = sec.repeat ? (ans.length === 1 ? 'scheda' : 'schede') : (ans.length === 1 ? 'risposta' : 'risposte');
+  const testo = !['single', 'multi', 'select'].includes(q.type);
+  let h = `<article class="rq${testo ? ' testo' : ''}"><div class="rq-h"><span class="mono rq-n">${q.n ? q.n : '·'}</span><div><h4>${esc(q.label)}</h4>
+    <p class="small muted">${ans.length} ${unit}${app.length !== ans.length ? ` su ${app.length}` : ''}${q.type === 'multi' ? ' · più risposte possibili, percentuali sul totale delle ' + (sec.repeat ? 'schede' : 'risposte') : ''}</p></div></div>`;
+  if (!ans.length) return h + '<p class="small muted">Nessuna risposta.</p></article>';
+  if (!testo) {
+    const conta = new Map((q.options || []).map(o => [o, 0])); const altri = [];
+    for (const c of ans) for (const v of asList(c.ans[q.id])) {
+      conta.set(v, (conta.get(v) || 0) + 1);
+      if (v === q.other && c.ans[q.id + '__altro']) altri.push({ c, t: c.ans[q.id + '__altro'] });
+    }
+    const tutte = [...conta.entries()].map(([label, n]) => ({ label, n }));
+    const usate = tutte.filter(v => v.n > 0), zero = tutte.filter(v => !v.n).map(v => v.label);
+    // Una sola risposta con poche opzioni: ciambella, nell'ordine delle opzioni. Più risposte o tante opzioni: barre ordinate.
+    if (q.type !== 'multi' && usate.length <= 6) h += repDonut(usate, ans.length, String(ans.length), unit);
+    else h += repBars(usate.sort((a, b) => b.n - a.n), ans.length);
+    if (zero.length) h += `<p class="small muted rzero">Mai scelte: ${zero.map(esc).join(' · ')}</p>`;
+    if (altri.length) h += repTexts('Specificato in “' + (q.other || 'Altro') + '”', altri);
+  } else h += repTexts('', ans.map(c => ({ c, t: c.ans[q.id] })));
+  return h + '</article>';
+}
+function repTexts(titolo, items) {
+  const chi = c => S.repNomi ? `<span class="rchi">${esc(svName(c.r))}</span>` : '';
+  return `${titolo ? `<p class="small rtit">${esc(titolo)}</p>` : ''}<ul class="rtexts">${items.map(x => `<li>${esc(String(x.t).trim())}${chi(x.c)}</li>`).join('')}</ul>`;
+}
+// Punti di attenzione e mappa strumenti × rischi della survey AI @ GS LOFT (solo se la survey contiene quelle domande).
+const REP_RISCHI = [
+  ['bad', 'Dati sanitari dei clienti', t => asList(t.it.q10).some(v => v.startsWith('Informazioni sulla salute'))],
+  ['bad', 'Credenziali o password', t => asList(t.it.q10).some(v => v.startsWith('Credenziali'))],
+  ['warn', 'Nomi o recapiti di clienti', t => asList(t.it.q10).some(v => v.startsWith('Nomi o recapiti'))],
+  ['warn', 'Account personale', t => asList(t.it.q5).some(v => v.startsWith('Account personale'))],
+  ['warn', 'Account personale anche per uso privato', t => t.it.q6 === 'Anche per finalità private'],
+  ['warn', 'Iniziato di propria iniziativa', t => t.it.q7 === 'Ho iniziato a usarlo di mia iniziativa'],
+  ['warn', 'Collegato ad archivi con dati dei clienti', t => asList(t.it.q11).some(v => /HubSpot|Gestionale|dati dei clienti/.test(v))],
+  ['warn', 'Controllo umano scarso o assente', t => ['Solo qualche volta', 'No'].includes(t.it.q13)],
+  ['warn', 'Decisioni che riguardano persone', t => asList(t.it.q14).some(v => v.startsWith('Sì'))],
+  ['warn', 'Contatto diretto con persone esterne', t => asList(t.it.q15).some(v => /invia messaggi|chiamate/.test(v))],
+];
+function repAttenzione(def, rows) {
+  const si = def.sections.find(s => s.repeat); if (!si || !svQ(def, 'q10').id) return '';
+  const schede = rows.flatMap(r => (r.answers.groups[si.id] || []).map(it => ({ r, it })));
+  const punti = REP_RISCHI.map(([tone, label, f]) => ({ tone, label, l: schede.filter(f) })).filter(p => p.l.length);
+  const ic = { bad: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.2v.3"/></svg>', warn: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.2v.3"/></svg>' };
+  let h = `<section class="rsec"><div class="rsec-h"><span class="mono">02</span><h3>Punti di attenzione</h3></div>`;
+  if (!punti.length) return h + `<p class="small muted">Nessun punto di attenzione nelle ${schede.length} schede inviate.</p></section>`;
+  h += `<p class="small muted">Schede strumento in cui compare la situazione, su ${schede.length} schede in totale. <b class="rleg bad">Critico</b> <b class="rleg warn">Da verificare</b></p>
+    <div class="ratt">${punti.map(p => { const tools = [...new Set(p.l.map(t => svToolName(def, t.it)))];
+      return `<div class="ratt-i ${p.tone}"><span class="ratt-ic">${ic[p.tone]}</span><div><span>${esc(p.label)}</span><small>${tools.map(esc).join(' · ')}${S.repNomi ? ` — ${[...new Set(p.l.map(t => svName(t.r)))].map(esc).join(', ')}` : ''}</small></div><b class="mono">${p.l.length}<small>/${schede.length}</small></b></div>`; }).join('')}</div>`;
+  // mappa strumenti × rischi: intensità del verde = quota delle schede di quello strumento
+  const by = {}; for (const t of schede) (by[svToolName(def, t.it)] = by[svToolName(def, t.it)] || []).push(t);
+  const tools = Object.entries(by).sort((a, b) => b[1].length - a[1].length);
+  const cols = REP_RISCHI.filter(([, , f]) => schede.some(f));
+  h += `<div class="rmap-wrap"><table class="rmap"><thead><tr><th>Strumento</th><th class="num">Schede</th>${cols.map(([tone, l]) => `<th class="${tone}"><span>${esc(l)}</span></th>`).join('')}</tr></thead><tbody>
+    ${tools.map(([n, l]) => `<tr><td>${esc(n)}</td><td class="num">${l.length}</td>${cols.map(([tone, , f]) => { const k = l.filter(f).length, a = k / l.length;
+      return `<td class="num c ${tone}" style="--a:${k ? (0.2 + a * 0.45).toFixed(2) : 0}">${k || ''}</td>`; }).join('')}</tr>`).join('')}</tbody></table>
+    <p class="small muted">Ogni casella indica in quante schede dello strumento compare la situazione: più è scura, più è frequente.</p></div>`;
+  return h + '</section>';
+}
+function reportView() {
+  const s = S.surveys.find(x => x.def.id === S.svSel); if (!s) { S.svPage = 'list'; return adminSurveys(); }
+  const def = s.def, rows = S.responses.filter(r => r.surveyId === def.id);
+  const date = rows.map(r => r.updatedAt).filter(Boolean).sort();
+  const gg = ts => new Date(ts).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
+  const persone = S.people.length, missing = S.people.filter(p => !rows.some(r => r.email === p.email));
+  const rep = def.sections.find(x => x.repeat);
+  const schede = rep ? rows.flatMap(r => r.answers.groups[rep.id] || []) : [];
+  const conQ = id => !!svQ(def, id).id;
+  const usa = conQ('q3') ? rows.filter(r => ['Sì, spesso', 'Sì, ogni tanto'].includes(r.answers.main.q3)).length : null;
+  const nStr = rep && conQ('q4') ? new Set(schede.map(it => svToolName(def, it))).size : null;
+  const sanitari = conQ('q10') ? schede.filter(it => asList(it.q10).some(v => v.startsWith('Informazioni sulla salute'))).length : null;
+  let h = `<div class="stack"><div class="row noprint"><button class="btn ghost sm" data-act="svres" data-id="${esc(def.id)}">← Risposte</button><span class="spacer"></span>
+      <label class="check small"><input type="checkbox" data-act="repnomi" ${S.repNomi ? 'checked' : ''}>Mostra i nomi accanto alle risposte</label>
+      <button class="btn" data-act="reload">Aggiorna</button><button class="btn primary" data-act="repprint">Stampa o salva PDF</button></div>
+    <div class="report">
+    <header class="rcover"><div class="rcover-top"><span class="logo rlogo" role="img" aria-label="GS LOFT"></span><span class="mono">Resoconto survey</span></div>
+      <div class="rcover-mid"><p class="mono rkick">Portale Quiz &amp; Survey · GS LOFT</p><h2>${esc(def.title)}</h2><p class="rcover-sub">${esc(def.subtitle || '')}</p></div>
+      <div class="rcover-meta"><div><small class="mono">Generato il</small><b>${gg(Date.now())}</b></div>${date.length ? `<div><small class="mono">Risposte</small><b>dal ${gg(date[0])} al ${gg(date[date.length - 1])}</b></div>` : ''}<div><small class="mono">Stato</small><b>${s.active ? 'Survey aperta' : 'Survey chiusa'}</b></div></div></header>`;
+  if (!rows.length) return h + `<div class="empty"><h3>Nessuna risposta ancora</h3><p>Il resoconto si prepara appena arriva la prima risposta.</p></div></div></div>`;
+  // 01 · panoramica: numeri chiave, partecipazione, aree, uso dell'IA
+  h += `<section class="rsec"><div class="rsec-h"><span class="mono">01</span><h3>Panoramica</h3></div><div class="rkpis">
+    ${repKpi(`${rows.length}<small>/${persone}</small>`, 'Persone che hanno risposto', pct(rows.length, persone) + '% del team')}
+    ${usa != null ? repKpi(usa, "Usano l'IA spesso o ogni tanto", pct(usa, rows.length) + '% di chi ha risposto') : ''}
+    ${nStr != null ? repKpi(nStr, 'Strumenti diversi', schede.length + ' schede compilate') : ''}
+    ${sanitari != null ? repKpi(sanitari, 'Schede con dati sanitari', sanitari ? 'Da verificare con priorità' : 'Nessuna', sanitari ? 'bad' : '') : ''}</div>
+    <div class="rgrid">
+      <div class="rbox"><h4>Partecipazione</h4>${repDonut([{ label: 'Hanno risposto', n: rows.length, col: RCOL[0] }, { label: 'Non ancora', n: missing.length, col: '#b9b9b4' }], persone, pct(rows.length, persone) + '%', 'risposto')}</div>
+      ${conQ('q3') ? (() => { const q = svQ(def, 'q3'); const v = (q.options || []).map(o => ({ label: o, n: rows.filter(r => r.answers.main.q3 === o).length })).filter(x => x.n);
+        return `<div class="rbox"><h4>Uso dell'IA nel lavoro</h4>${repDonut(v, rows.length, String(rows.length), 'risposte')}</div>`; })() : ''}
+      ${conQ('q2') ? (() => { const q = svQ(def, 'q2'); const v = (q.options || []).map(o => ({ label: o, n: rows.filter(r => r.answers.main.q2 === o).length })).filter(x => x.n);
+        return `<div class="rbox wide"><h4>Risposte per area</h4>${repBars(v.sort((a, b) => b.n - a.n), rows.length)}</div>`; })() : ''}
+    </div></section>`;
+  h += repAttenzione(def, rows);
+  if (rep && conQ('q4')) {
+    const by = {};
+    for (const r of rows) for (const it of (r.answers.groups[rep.id] || [])) { const n = svToolName(def, it); (by[n] = by[n] || new Set()).add(r.email); }
+    const top = Object.entries(by).map(([label, set]) => ({ label, n: set.size })).sort((a, b) => b.n - a.n);
+    h += `<section class="rsec"><div class="rsec-h"><span class="mono">03</span><h3>Strumenti più usati</h3></div><p class="small muted">Persone che usano lo strumento, su ${rows.length} risposte.</p>${repBars(top, rows.length)}</section>`;
+  }
+  let n = 4;
+  for (const sec of def.sections) {
+    const conts = repContainers(def, sec, rows);
+    const qs = sec.questions.filter(q => q.id !== 'q1');
+    h += `<section class="rsec"><div class="rsec-h"><span class="mono">${String(n++).padStart(2, '0')}</span><h3>${esc(sec.title)}</h3></div>${sec.repeat ? `<p class="small muted">Percentuali calcolate sulle ${conts.length} schede ${esc(sec.repeat.item.toLowerCase())} compilate.</p>` : ''}
+      <div class="rqs">${qs.map(q => repQuestion(def, sec, q, conts)).join('')}</div></section>`;
+  }
+  if (missing.length) h += `<section class="rsec"><div class="rsec-h"><span class="mono">${String(n).padStart(2, '0')}</span><h3>Non hanno ancora risposto (${missing.length})</h3></div><p class="small">${missing.map(p => esc(nameFromEmailClient(p.email))).join(' · ')}</p></section>`;
+  return h + `<p class="small muted rfoot">Resoconto preparato dal Portale Quiz &amp; Survey di GS LOFT, in sola lettura: le risposte salvate non vengono modificate.</p></div></div>`;
+}
+function nameFromEmailClient(email) {
+  const u = String(email || '').split('@')[0].replace(/[._-]+/g, ' ').trim();
+  return u ? u.replace(/\b\w/g, c => c.toUpperCase()) : email;
+}
+
 /* ---------- svolgimento: server (lavoratore) o locale (anteprima) ---------- */
 function applyState(st) {
   if (st.status === 'consegnato') {
@@ -932,8 +908,7 @@ function startTimer() {
   timerH = setInterval(() => {
     if (!S.run || S.view !== 'run') { clearInterval(timerH); return; }
     const left = S.run.deadlineLocal - Date.now(); const el = document.getElementById('timer');
-    if (el) { el.textContent = fmtT(left); const tr = document.getElementById('tring');
-      if (tr) { tr.style.setProperty('--f', Math.max(0, Math.min(1, left / (S.run.totalMs || 1)))); tr.className = 'tring' + (left <= 60000 ? ' bad' : left <= 180000 ? ' warn' : ''); } }
+    if (el) { el.textContent = fmtT(left); el.className = 'timer' + (left <= 60000 ? ' bad' : left <= 180000 ? ' warn' : ''); }
     if (left <= 0 && !S.run.expiring) { S.run.expiring = true; onExpire(); }
   }, 500);
 }
@@ -1014,6 +989,9 @@ app.addEventListener('click', async e => {
       case 'svdelno': S.svAskDel = null; render(); break;
       case 'svdelok': S.svAskDel = null; await api('admin/survey-response?key=' + encodeURIComponent(b.dataset.k), { method: 'DELETE' }); toast('Risposta eliminata'); await refresh(); break;
       case 'svcsv': exportSurveyCsv(); break;
+      case 'report': S.svPage = 'report'; render(); window.scrollTo(0, 0); await refresh(); break;
+      case 'repprint': window.print(); break;
+      case 'repnomi': S.repNomi = b.checked; render(); break;
       // modifica delle domande
       case 'svedit': openSvEdit(b.dataset.id); break;
       case 'secancel': S.svEdit = null; S.svPage = 'list'; render(); window.scrollTo(0, 0); break;
@@ -1051,11 +1029,6 @@ app.addEventListener('click', async e => {
       case 'delno': S.askDel = null; render(); break;
       case 'delok': S.askDel = null; await api('admin/quizzes?id=' + encodeURIComponent(b.dataset.id), { method: 'DELETE' }); toast('Quiz eliminato'); await refresh(); break;
       case 'seeres': S.resFilter = b.dataset.id; S.tab = 'results'; render(); break;
-      case 'purgeask': S.purgeAsk = true; render(); break;
-      case 'purgeno': S.purgeAsk = false; render(); break;
-      case 'purgeok': doPurge(); break;
-      case 'purgego': S.purgeT = S.resFilter && S.resFilter !== 'all' ? 'q:' + S.resFilter : 'all'; S.purgeAsk = false; S.tab = 'overview'; S.view = 'home'; render();
-        setTimeout(() => { const el = document.getElementById('purge'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 60); break;
       case 'detail': S.openDetail = S.openDetail === b.dataset.k ? null : b.dataset.k; render(); break;
       case 'resetask': S.askReset = b.dataset.k; render(); break;
       case 'resetno': S.askReset = null; render(); break;
@@ -1065,8 +1038,7 @@ app.addEventListener('click', async e => {
       case 'accrm': S.askRm = b.dataset.e; render(); break;
       case 'accrmno': S.askRm = null; render(); break;
       case 'accrmok': S.askRm = null; S.people = (await api('admin/people?email=' + encodeURIComponent(b.dataset.e), { method: 'DELETE' })).people; toast('Accesso rimosso'); render(); break;
-      case 'regen': { const r = await api('admin/people', { method: 'PATCH', body: { email: b.dataset.e } }); S.people = r.people; toast('Nuovo codice generato' + mailMsg(r.mail, 'email inviata', 'email inviate')); render(); break; }
-      case 'accmail': mailAccess(b.dataset.e); break;
+      case 'regen': S.people = (await api('admin/people', { method: 'PATCH', body: { email: b.dataset.e } })).people; toast('Nuovo codice generato'); render(); break;
       case 'copy': navigator.clipboard.writeText(b.dataset.t).then(() => toast('Copiato'), () => toast('Copia non riuscita: seleziona il testo a mano')); break;
       case 'preview': S.preview = true; S.sel = b.dataset.id; S.view = 'intro'; render(); window.scrollTo(0, 0); break;
       case 'intro': S.preview = false; S.sel = b.dataset.id; S.view = 'intro'; render(); window.scrollTo(0, 0); break;
@@ -1084,8 +1056,6 @@ app.addEventListener('input', e => {
   if (t.dataset.se && S.svEdit) { if (!['bool', 'type', 'ex', 'other'].includes(t.dataset.sek)) seField(t); return; }
   const f = t.dataset.f; if (!f) return;
   if (f === 'resFilter') { S.resFilter = t.value; S.openDetail = null; render(); return; }
-  if (f === 'purge') { S.purgeT = t.value; S.purgeAsk = false; render(); return; }
-  if (f === 'sendMail') { S.sendMail = t.checked; const b = document.querySelector('[data-act=accadd]'); if (b) b.textContent = t.checked ? 'Autorizza e invia email' : 'Autorizza e genera codici'; return; }
   const d = S.draft; if (!d) return;
   const qi = +t.dataset.q, oi = +t.dataset.o;
   if (f === 'qtext') d.questions[qi].text = t.value;
@@ -1103,61 +1073,7 @@ app.addEventListener('change', e => {
   }
   if (t.dataset.f === 'correct' && S.draft) S.draft.questions[+t.dataset.q].correct = +t.dataset.o;
 });
-document.addEventListener('keydown', e => {
-  if (S.view !== 'run' || !S.run || e.ctrlKey || e.metaKey || e.altKey) return;
-  const tag = (e.target.tagName || '').toLowerCase(); if (tag === 'input' || tag === 'textarea') return;
-  const k = e.key.toUpperCase(), btns = [...app.querySelectorAll('.choice')];
-  const idx = k.length === 1 ? k.charCodeAt(0) - 65 : -1;
-  if (idx >= 0 && idx < btns.length) { e.preventDefault(); btns[idx].click(); }
-  else if (e.key === 'Enter' && S.run.pick != null) { e.preventDefault(); confirmAnswer(); }
-});
 window.addEventListener('beforeunload', e => { if (S.view === 'run' && !S.preview) { e.preventDefault(); e.returnValue = ''; } });
 
-/* numeri che "contano" fino al valore all'apertura di una schermata */
-function countUp() {
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  app.querySelectorAll('.kpi-v, .hero-stat b, .tile-nums b').forEach(el => {
-    const node = el.firstChild; if (!node || node.nodeType !== 3) return;
-    const m = node.textContent.match(/^(\d+)(.*)$/); if (!m) return;
-    const end = +m[1], rest = m[2]; if (end < 2) return;
-    const t0 = performance.now(), dur = 700;
-    const step = t => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); node.textContent = Math.round(end * e) + rest; if (k < 1) requestAnimationFrame(step); };
-    node.textContent = '0' + rest; requestAnimationFrame(step);
-  });
-}
-
-/* Effetto 3D delle card: si inclinano seguendo il puntatore (solo mouse, rispetta "riduci movimento") */
-if (matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  let cur = null;
-  app.addEventListener('pointermove', e => {
-    const el = e.target.closest('.tilt,.kpi,.qcard2,.p3d');
-    if (cur && cur !== el) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); }
-    cur = el; if (!el) return;
-    const r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-    const max = el.classList.contains('login') ? 4 : el.classList.contains('kpi') ? 10 : 7;
-    el.style.setProperty('--rx', ((0.5 - y) * max).toFixed(2) + 'deg');
-    el.style.setProperty('--ry', ((x - 0.5) * max).toFixed(2) + 'deg');
-    el.style.setProperty('--mx', (x * 100).toFixed(1) + '%');
-    el.style.setProperty('--my', (y * 100).toFixed(1) + '%');
-    el.classList.add('is-tilting');
-  });
-  app.addEventListener('pointermove', e => {
-    const sc = app.querySelector('.stack3d,.ha-stage'); if (!sc) return;
-    sc.style.setProperty('--px', ((e.clientX / innerWidth) - 0.5).toFixed(3)); sc.style.setProperty('--py', ((e.clientY / innerHeight) - 0.5).toFixed(3));
-  });
-  app.addEventListener('pointerleave', () => { if (cur) { cur.style.removeProperty('--rx'); cur.style.removeProperty('--ry'); cur.classList.remove('is-tilting'); cur = null; } });
-}
-
-/* Intro animata all'apertura (una volta per sessione del browser) */
-function intro() {
-  let seen = false; try { seen = sessionStorage.getItem('gsl-intro') === '1'; sessionStorage.setItem('gsl-intro', '1'); } catch (e) {}
-  if (seen || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const el = document.createElement('div'); el.className = 'intro'; el.setAttribute('aria-hidden', 'true');
-  el.innerHTML = `<div class="intro-in"><span class="intro-logo"></span><span class="intro-line"></span><span class="intro-word">Learning</span><span class="intro-sub">Quiz &amp; survey del team</span></div>`;
-  document.body.appendChild(el);
-  const close = () => { if (el.classList.contains('out')) return; el.classList.add('out'); setTimeout(() => el.remove(), 700); };
-  el.addEventListener('click', close); setTimeout(close, 2300);
-}
-intro();
 boot();
 })();

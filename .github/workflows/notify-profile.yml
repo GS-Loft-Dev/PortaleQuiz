@@ -1,0 +1,23 @@
+name: avvisa profilo
+
+# Dopo ogni push su main chiede al profilo di GS-Loft-Dev/.github
+# si aggiorni subito (tabella, banner, attività).
+# Serve il segreto PROFILE_DISPATCH_TOKEN; se manca, salta senza errori.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          TOKEN: ${{ secrets.PROFILE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "::notice::PROFILE_DISPATCH_TOKEN missing, skipping"; exit 0; fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/GS-Loft-Dev/.github/dispatches \
+            -d '{"event_type":"aggiorna-profilo"}'
